@@ -163,6 +163,9 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
         unrewarded_zscore_windows=unrewarded_z,
         baseline_window_s=(PETH_BASELINE_PRE_EVENT_S, PETH_BASELINE_POST_EVENT_S),
         align_event=align_event,
+        all_zscore_windows=all_zscore_windows,
+        word_l3_labels=peth_trial_table["word_l3"],
+        word_l3_generic_labels=peth_trial_table["word_l3_generic"],
     )
 
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_FIGURE_DIR

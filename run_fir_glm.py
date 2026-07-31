@@ -34,15 +34,19 @@ from models.fir_glm import (
     build_and_fit_pooled_fir_glm,
 )
 from pipeline import DEFAULT_FIGURE_DIR
+from qc.session_qc import filter_sessions_by_qc
 from viz.fir_plots import plot_fir_kernels
 
 
 def run_fir_glm(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal="zscore",
                  group_col=DEFAULT_GROUP_COLUMN, lag_seconds=DEFAULT_LAG_SECONDS,
                  n_splits=DEFAULT_N_SPLITS, test_size=DEFAULT_TEST_SIZE,
-                 max_segments=None, output_dir=None):
+                 max_segments=None, output_dir=None, qc_report_path=None):
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_FIGURE_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if qc_report_path is not None:
+        session_dirs = filter_sessions_by_qc(session_dirs, qc_report_path)
 
     fit = build_and_fit_pooled_fir_glm(
         session_dirs, hemisphere=hemisphere, signal=signal, group_col=group_col,
@@ -104,12 +108,15 @@ def main():
                          help="Limit each session to its first N raw segments (for a quick test run)")
     parser.add_argument("--output-dir", type=Path, default=None,
                          help=f"Where to save the kernel figure (default: {DEFAULT_FIGURE_DIR})")
+    parser.add_argument("--qc-report", type=Path, default=None,
+                         help="Cohort QC report CSV (see run_cohort_qc.py) -- if given, session_dirs is filtered "
+                              "through qc.session_qc.filter_sessions_by_qc before pooling")
     args = parser.parse_args()
 
     run_fir_glm(
         args.session_dirs, hemisphere=args.hemisphere, signal=args.signal, group_col=args.group_col,
         lag_seconds=args.lag_seconds, n_splits=args.n_splits, test_size=args.test_size,
-        max_segments=args.max_segments, output_dir=args.output_dir,
+        max_segments=args.max_segments, output_dir=args.output_dir, qc_report_path=args.qc_report,
     )
 
 

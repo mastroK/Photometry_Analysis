@@ -11,6 +11,16 @@ from config.params import ALIGN_EVENT_LABELS, DEFAULT_ALIGN_EVENT
 
 sns.set_theme(style="ticks", context="talk")
 
+# word_l3/word_l3_generic codes (behavior.word_encoding: oldest-trial-first,
+# current-trial-last; uppercase = rewarded, lowercase = unrewarded) picked out
+# for the session-overview reward-history panels: each triplet holds the
+# current trial fixed (rewarded-right / rewarded-left / unrewarded-stay) and
+# varies the number of preceding trials of the same kind (0, 1, 2), so an
+# RPE-like signal should show up as a graded response across the 3 traces.
+RIGHT_HISTORY_FAMILY = ["RRR", "rRR", "rrR"]
+LEFT_HISTORY_FAMILY = ["LLL", "lLL", "llL"]
+STAY_HISTORY_FAMILY = ["aaa", "Aaa", "AAa"]
+
 
 def _plot_peth(ax, peth_time, windows, label, color):
     if windows.shape[0] == 0:
@@ -19,6 +29,23 @@ def _plot_peth(ax, peth_time, windows, label, color):
     sem = windows.std(axis=0, ddof=1) / np.sqrt(windows.shape[0])
     ax.plot(peth_time, mean, color=color, label=f"{label} (n={windows.shape[0]})")
     ax.fill_between(peth_time, mean - sem, mean + sem, color=color, alpha=0.25)
+
+
+def _plot_peth_group_panel(ax, peth_time, windows, group_labels, group_order, group_colors=None):
+    """Overlay one mean+/-SEM trace per group label onto `ax` (axvline at
+    t=0, no legend/despine/labels -- left to the caller so it can add
+    baseline shading etc. before finalizing the legend). Shared by
+    plot_peth_by_group and plot_session_overview's reward-history panels.
+    """
+    group_labels = pd.Series(np.asarray(group_labels)).reset_index(drop=True)
+    valid = group_labels.notna()
+    labels_order = list(group_order) if group_order is not None else sorted(group_labels[valid].unique())
+    palette = sns.color_palette("tab10", n_colors=len(labels_order))
+    colors = {label: (group_colors or {}).get(label, palette[i]) for i, label in enumerate(labels_order)}
+    for label in labels_order:
+        mask = (group_labels == label).to_numpy()
+        _plot_peth(ax, peth_time, windows[mask], str(label), colors[label])
+    ax.axvline(0, color="k", ls="--", lw=1)
 
 
 def plot_session_overview(
@@ -33,6 +60,9 @@ def plot_session_overview(
     unrewarded_zscore_windows=None,
     baseline_window_s=None,
     align_event=DEFAULT_ALIGN_EVENT,
+    all_zscore_windows=None,
+    word_l3_labels=None,
+    word_l3_generic_labels=None,
 ):
     """3-panel verification figure: continuous dF/F trace, PETH in dF/F
     units, and (if the z-scored window arrays are provided) PETH in
@@ -49,20 +79,40 @@ def plot_session_overview(
         is whichever event the caller aligned windows to (see
         alignment.windowing.get_event_indices); only used here to label the
         x-axis/title, not to change any of the plotted data.
+
+    all_zscore_windows / word_l3_labels / word_l3_generic_labels are optional
+    -- if given, a second row of reward-history overlay panels is added
+    (visual-inspection aid for RPE-like signal): a right-choice history panel
+    and a left-choice history panel (both need word_l3_labels, row-aligned
+    with all_zscore_windows) grouped by RIGHT_HISTORY_FAMILY/LEFT_HISTORY_FAMILY,
+    and a stay/no-switch history panel (needs word_l3_generic_labels) grouped
+    by STAY_HISTORY_FAMILY. Omitting all three keeps the original single-row
+    figure unchanged.
     """
     event_label = ALIGN_EVENT_LABELS[align_event]
     has_zscore = rewarded_zscore_windows is not None or unrewarded_zscore_windows is not None
-    n_panels = 3 if has_zscore else 2
-    fig, axes = plt.subplots(1, n_panels, figsize=(8 * n_panels, 5))
+    n_top = 3 if has_zscore else 2
+    n_bottom = (2 if word_l3_labels is not None else 0) + (1 if word_l3_generic_labels is not None else 0)
 
-    ax = axes[0]
+    if n_bottom == 0:
+        fig, top_axes = plt.subplots(1, n_top, figsize=(8 * n_top, 5))
+    else:
+        ncols = max(n_top, n_bottom)
+        fig, axes = plt.subplots(2, ncols, figsize=(8 * ncols, 10))
+        top_axes, bottom_axes = axes[0], axes[1]
+        for extra_ax in top_axes[n_top:]:
+            extra_ax.axis("off")
+        for extra_ax in bottom_axes[n_bottom:]:
+            extra_ax.axis("off")
+
+    ax = top_axes[0]
     ax.plot(time_axis, dff, lw=0.6, color="0.2")
     ax.set_xlabel("Session time (s)")
     ax.set_ylabel(r"$\Delta F/F$")
     ax.set_title(f"{title_prefix} -- demodulated {channel_label} channel")
     sns.despine(ax=ax)
 
-    ax = axes[1]
+    ax = top_axes[1]
     _plot_peth(ax, peth_time, rewarded_windows, "Rewarded", "#1abc9c")
     _plot_peth(ax, peth_time, unrewarded_windows, "Unrewarded", "#e74c3c")
     ax.axvline(0, color="k", ls="--", lw=1)
@@ -73,7 +123,7 @@ def plot_session_overview(
     sns.despine(ax=ax)
 
     if has_zscore:
-        ax = axes[2]
+        ax = top_axes[2]
         if rewarded_zscore_windows is not None:
             _plot_peth(ax, peth_time, rewarded_zscore_windows, "Rewarded", "#1abc9c")
         if unrewarded_zscore_windows is not None:
@@ -87,6 +137,27 @@ def plot_session_overview(
         ax.set_title(f"PETH: trial-level event-aligned Z-score ({event_label})")
         ax.legend(frameon=False)
         sns.despine(ax=ax)
+
+    if n_bottom > 0:
+        bottom_panels = []
+        if word_l3_labels is not None:
+            bottom_panels.append((RIGHT_HISTORY_FAMILY, word_l3_labels, "Right-choice reward history (word_l3)"))
+            bottom_panels.append((LEFT_HISTORY_FAMILY, word_l3_labels, "Left-choice reward history (word_l3)"))
+        if word_l3_generic_labels is not None:
+            bottom_panels.append(
+                (STAY_HISTORY_FAMILY, word_l3_generic_labels, "Stay/no-switch reward history (word_l3_generic)")
+            )
+
+        for ax, (group_order, labels, title) in zip(bottom_axes, bottom_panels):
+            _plot_peth_group_panel(ax, peth_time, all_zscore_windows, labels, group_order)
+            if baseline_window_s is not None:
+                ax.axvspan(baseline_window_s[0], baseline_window_s[1], color="0.6", alpha=0.15,
+                           label="baseline window")
+            ax.set_xlabel(f"Time from {event_label} (s)")
+            ax.set_ylabel("Trial-aligned Z-score")
+            ax.set_title(title)
+            ax.legend(frameon=False)
+            sns.despine(ax=ax)
 
     fig.tight_layout()
     return fig
@@ -122,12 +193,6 @@ def plot_peth_by_group(
         plot_session_overview, same axis/title-labeling-only role.
     """
     event_label = ALIGN_EVENT_LABELS[align_event]
-    group_labels = pd.Series(np.asarray(group_labels)).reset_index(drop=True)
-    valid = group_labels.notna()
-    labels_order = list(group_order) if group_order is not None else sorted(group_labels[valid].unique())
-
-    palette = sns.color_palette("tab10", n_colors=len(labels_order))
-    colors = {label: (group_colors or {}).get(label, palette[i]) for i, label in enumerate(labels_order)}
 
     has_zscore = zscore_windows is not None
     n_panels = 2 if has_zscore else 1
@@ -135,10 +200,7 @@ def plot_peth_by_group(
     axes = np.atleast_1d(axes)
 
     ax = axes[0]
-    for label in labels_order:
-        mask = (group_labels == label).to_numpy()
-        _plot_peth(ax, peth_time, dff_windows[mask], str(label), colors[label])
-    ax.axvline(0, color="k", ls="--", lw=1)
+    _plot_peth_group_panel(ax, peth_time, dff_windows, group_labels, group_order, group_colors=group_colors)
     ax.set_xlabel(f"Time from {event_label} (s)")
     ax.set_ylabel(r"$\Delta F/F$")
     ax.set_title(f"{title_prefix} -- PETH by group ({channel_label})".strip(" -"))
@@ -147,10 +209,7 @@ def plot_peth_by_group(
 
     if has_zscore:
         ax = axes[1]
-        for label in labels_order:
-            mask = (group_labels == label).to_numpy()
-            _plot_peth(ax, peth_time, zscore_windows[mask], str(label), colors[label])
-        ax.axvline(0, color="k", ls="--", lw=1)
+        _plot_peth_group_panel(ax, peth_time, zscore_windows, group_labels, group_order, group_colors=group_colors)
         if baseline_window_s is not None:
             ax.axvspan(baseline_window_s[0], baseline_window_s[1], color="0.6", alpha=0.15,
                        label="baseline window")

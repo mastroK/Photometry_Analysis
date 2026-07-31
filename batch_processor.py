@@ -23,6 +23,7 @@ from config.params import ALIGN_EVENT_COLUMNS, DEFAULT_ALIGN_EVENT, DEFAULT_HEMI
 from config.session_metadata import compute_age_days, get_mouse_metadata, load_cohort_metadata
 from io_utils.raw_loader import parse_session_id
 from pipeline import run_session
+from qc.session_qc import filter_sessions_by_qc
 
 
 def discover_sessions(cohort_root):
@@ -37,7 +38,7 @@ def discover_sessions(cohort_root):
 
 
 def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFAULT_HEMISPHERE,
-                        max_segments=None, align_event=DEFAULT_ALIGN_EVENT):
+                        max_segments=None, align_event=DEFAULT_ALIGN_EVENT, qc_report_path=None):
     """Run an explicit list of session directories through run_session(),
     attach cohort metadata, and write the concatenated per-trial result to
     output_path (.parquet or .csv, inferred from suffix).
@@ -55,9 +56,17 @@ def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFA
     A session that fails (e.g. too few trials, alignment below the xcorr
     acceptance threshold) is logged and skipped rather than aborting the
     whole batch.
+
+    qc_report_path, if given, is a cohort QC report CSV (see run_cohort_qc.py /
+    qc.session_qc) -- session_dirs is filtered through
+    qc.session_qc.filter_sessions_by_qc before processing.
     """
     metadata_df = load_cohort_metadata(metadata_path)
     output_path = Path(output_path)
+
+    session_dirs = list(session_dirs)
+    if qc_report_path is not None:
+        session_dirs = filter_sessions_by_qc(session_dirs, qc_report_path)
 
     frames = []
     n_ok, n_failed = 0, 0
@@ -116,7 +125,7 @@ def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFA
 
 
 def run_batch(cohort_root, metadata_path, output_path, hemisphere=DEFAULT_HEMISPHERE,
-              max_segments=None, align_event=DEFAULT_ALIGN_EVENT):
+              max_segments=None, align_event=DEFAULT_ALIGN_EVENT, qc_report_path=None):
     """Discover every session under cohort_root/<date>/<mouse>/ and run them
     all through run_batch_sessions(). See run_batch_sessions for the merge/
     export behavior; use that function directly to target an explicit subset
@@ -125,6 +134,7 @@ def run_batch(cohort_root, metadata_path, output_path, hemisphere=DEFAULT_HEMISP
     return run_batch_sessions(
         discover_sessions(cohort_root), metadata_path, output_path,
         hemisphere=hemisphere, max_segments=max_segments, align_event=align_event,
+        qc_report_path=qc_report_path,
     )
 
 
@@ -139,6 +149,9 @@ def main():
                          help="Which trial event peth_trial_table/the reward-split figure is aligned to per session "
                               "(default: %(default)s) -- the master DataFrame's peak_z_*/auc_* columns cover all 4 "
                               "events regardless of this choice")
+    parser.add_argument("--qc-report", type=Path, default=None,
+                         help="Cohort QC report CSV (see run_cohort_qc.py) -- if given, sessions are filtered "
+                              "through qc.session_qc.filter_sessions_by_qc before processing")
     args = parser.parse_args()
 
     run_batch(
@@ -146,6 +159,7 @@ def main():
         metadata_path=args.metadata,
         output_path=args.output,
         hemisphere=args.hemisphere,
+        qc_report_path=args.qc_report,
         max_segments=args.max_segments,
         align_event=args.align_to,
     )
