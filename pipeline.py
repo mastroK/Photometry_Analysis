@@ -147,6 +147,10 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
 
     # --- 6b. word/sequence outcome summary (behavioral + photometry) -------------
     for group_col in SUMMARY_GROUP_COLUMNS:
+        if group_col not in trial_table.columns:
+            # e.g. "Behavioral_State" when compute_bandit_state=False (qc.session_qc
+            # skips the Q-learning fit for speed and doesn't need this column).
+            continue
         summary = evaluate_word_outcomes(
             trial_table, group_col,
             zscore_windows=all_zscore_windows, peth_trial_table=peth_trial_table, peth_time=peth_time,
