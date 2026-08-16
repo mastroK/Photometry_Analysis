@@ -90,6 +90,13 @@ def build_trial_table(poke_history, stats):
             "left_reward_prob": left_reward_prob,
             "right_reward_prob": right_reward_prob,
             "was_rewarded": was_rewarded,
+            # Degenerate (forced-choice) blocks show up in some cohorts (e.g. SM's
+            # early-training 100-0 blocks) as a reward probability of 0 or 1 rather
+            # than a real bandit split -- flagged generically here (constant False
+            # for every WCL/FP1/FP2 session, which never has this) so a later
+            # pooling step can exclude them without touching this sequential
+            # trial-table construction itself.
+            "is_forced_block": (left_reward_prob >= 1.0) | (left_reward_prob <= 0.0),
         }
     )
     return trial_table.sort_values("side_in_time").reset_index(drop=True)

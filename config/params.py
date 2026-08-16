@@ -173,6 +173,29 @@ LAG_N = 3
 DECISION_WINDOW_S = (0.0, 1.0)
 REWARD_WINDOW_S = (1.0, 3.0)
 
+# --- Onset-latency / decay-time-constant kinetics (alignment/kinetics.py) ----
+# Fit from TRIAL-AVERAGED PETHs (per mouse x condition), not single trials --
+# individual dF/F trials generally don't have enough SNR to reliably locate a
+# rise/fall shape, unlike peak/AUC (a max and an integral, both robust to
+# single-trial noise). See alignment/kinetics.py's module docstring for the
+# full onset/decay definitions this feeds.
+ONSET_FRACTION = 0.5  # time-to-half-max convention; raise/lower to change what "onset" means
+DECAY_RETURN_TO_BASELINE_FRAC = 0.1  # fraction of peak amplitude (above offset) counted as "back near baseline"
+DECAY_MIN_POST_PEAK_SAMPLES = 6  # skip (NaN) the exponential fit if fewer samples than this remain after the peak
+DECAY_MAX_TAU_RATIO = 1.0  # skip the fit if fitted tau exceeds this x the fitted segment's own length (implausible)
+
+# Metric window used specifically for onset/decay fitting -- deliberately
+# WIDER than DECISION_WINDOW_S (which peak/AUC still use unchanged).
+# Confirmed directly on the real pooled FP1+FP2 dataset: with DECISION_WINDOW_S
+# (0, 1.0s), the trial-averaged reward response peaks so close to the window's
+# own right edge that 21/22 mouse x reward/omission groups had fewer than
+# DECAY_MIN_POST_PEAK_SAMPLES left to fit a decay on at all (95% skip rate) --
+# not a fitting bug, just too narrow a window to see any decay. (0, 3.0s)
+# (spanning DECISION_WINDOW_S + REWARD_WINDOW_S) dropped that to 8/22 (36%),
+# with the remaining skips being genuine ambiguous-decay cases, not artifacts
+# of an overly strict window. User-approved as the first-pass choice.
+KINETICS_METRIC_WINDOW_S = (0.0, 3.0)
+
 # Default word/sequence columns (and how many top-N most frequent patterns
 # per column) shown by pipeline.py's demo outcome summary table.
 SUMMARY_GROUP_COLUMNS = (

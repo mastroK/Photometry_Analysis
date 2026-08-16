@@ -127,6 +127,29 @@ def detect_session_hemisphere(raw, trial_table, candidates=DEFAULT_CANDIDATE_HEM
     return best, results
 
 
+def evaluate_bilateral_hemispheres(raw, trial_table, hemispheres=("green_r", "green_l"),
+                                    p_value_thresh=SIGNIFICANT_P_VALUE):
+    """Independently gate each hemisphere for a true dual-fiber rig (e.g. the
+    SM cohort), where BOTH sides are real, simultaneously-recorded pyramidal
+    signal rather than WCL's single-active-channel-per-mouse setup.
+
+    Unlike detect_session_hemisphere, this does NOT pick a single winner or
+    suppress a close runner-up -- both sides can and should be valid at once.
+    A hemisphere is valid iff it demodulates cleanly and reaches significance
+    on its own reward-vs-no-reward differential response.
+
+    Returns (valid, results): valid is {hemisphere: bool}; results is
+    {hemisphere: result_dict} from evaluate_channel_reward_response, for
+    reporting/debugging.
+    """
+    results = {name: evaluate_channel_reward_response(raw, trial_table, name) for name in hemispheres}
+    valid = {
+        name: ("error" not in r and r["p_value"] < p_value_thresh)
+        for name, r in results.items()
+    }
+    return valid, results
+
+
 def load_session_hemisphere_overrides(path):
     """Load a manual per-(mouse,date) hemisphere override CSV (columns:
     Mouse ID, Date, Hemisphere -- Date in the same MMDDYY string convention

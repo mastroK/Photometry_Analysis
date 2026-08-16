@@ -69,6 +69,8 @@ def main():
     r2 = pd.read_csv(f"{RESULTS_DIR}/analysis2_signed_vs_unsigned.csv", index_col=0)
     r3a = pd.read_csv(f"{RESULTS_DIR}/analysis3a_encoding_glm_per_mouse.csv", index_col=0)
     r3b = pd.read_csv(f"{RESULTS_DIR}/analysis3b_fir_glm_per_mouse.csv", index_col=0)
+    r5_reward = pd.read_csv(f"{RESULTS_DIR}/analysis5_kinetics_reward_per_mouse.csv", index_col=0)
+    r5_omission = pd.read_csv(f"{RESULTS_DIR}/analysis5_kinetics_omission_per_mouse.csv", index_col=0)
 
     metric_specs = [
         (r1, "beta_rpe", "beta_RPE (post_amp ~ RPE_signed)"),
@@ -76,6 +78,15 @@ def main():
         (r3a, "peak_r2", "Encoding-GLM peak R2"),
         (r3b, "r2_mean", "FIR out-of-sample R2"),
         (r2, "delta_r2", "Signed vs unsigned RPE delta R2"),
+        # Onset/decay kinetics (rpe_analysis_kinetics.py, alignment/kinetics.py).
+        # Fit from trial-averaged PETHs, so some mice have no fittable decay
+        # (see that module + config.params.KINETICS_METRIC_WINDOW_S for why) --
+        # compare_metric already drops NaNs and requires >=2 per group, so this
+        # comparison just runs on whichever mice DID get a successful fit.
+        (r5_reward, "onset_latency_s", "Reward onset latency (s)"),
+        (r5_reward, "decay_tau_s", "Reward decay tau (s)"),
+        (r5_omission, "onset_latency_s", "Omission onset latency (s)"),
+        (r5_omission, "decay_tau_s", "Omission decay tau (s)"),
     ]
 
     rows = []
