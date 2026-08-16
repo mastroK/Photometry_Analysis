@@ -49,3 +49,41 @@ def compute_age_days(dob, session_date_str):
     """
     session_date = pd.to_datetime(session_date_str, format="%m%d%y")
     return (session_date - pd.Timestamp(dob)).days
+
+
+def load_mouse_hemisphere(path):
+    """Load a per-mouse hemisphere lookup (Mouse ID, Hemisphere columns,
+    e.g. config/mouse_hemisphere.csv), indexed by Mouse ID.
+
+    Hemisphere is a property of the mouse's own fiber implant, not the
+    session/day, so this is resolved once per mouse rather than re-derived
+    per session. The values here were determined from each mouse's own
+    RA-processed_<mouse>_<date>.mat params.channelNames/measuredCarrierFreq
+    (which physical fluorescence channel actually shows a locked carrier,
+    confirmed consistent across multiple dates per mouse) -- see the
+    run_condition_batch.py review notes for why a from-scratch raw-signal
+    auto-detector was tried and rejected (cross-channel electrical crosstalk
+    in this rig makes raw carrier amplitude/frequency an unreliable per-
+    session discriminator).
+    """
+    path = Path(path)
+    df = pd.read_csv(path)
+    missing = [col for col in ("Mouse ID", "Hemisphere") if col not in df.columns]
+    if missing:
+        raise ValueError(f"{path} is missing required column(s): {missing}")
+    return df.set_index("Mouse ID")["Hemisphere"].to_dict()
+
+
+def get_mouse_hemisphere(hemisphere_lookup, mouse_id, default_hemisphere):
+    """Look up mouse_id's hemisphere in hemisphere_lookup (see
+    load_mouse_hemisphere), falling back to default_hemisphere with a
+    warning if the mouse isn't listed (e.g. a new mouse added to a cohort
+    after mouse_hemisphere.csv was last updated) -- same soft-fail
+    convention as get_mouse_metadata's caller in batch_processor.py, rather
+    than blocking the whole batch on one missing lookup row.
+    """
+    if mouse_id in hemisphere_lookup:
+        return hemisphere_lookup[mouse_id]
+    print(f"WARNING: mouse '{mouse_id}' not found in hemisphere lookup -- "
+          f"defaulting to '{default_hemisphere}'")
+    return default_hemisphere

@@ -196,6 +196,20 @@ def evaluate_word_outcomes(
 
     Win-Stay = P(trial t is a stay | trial t-1 was rewarded).
     Lose-Switch = P(trial t is a switch | trial t-1 was unrewarded).
+
+    On MATLAB's "hasP" gate (processCeliaWord.m:101-108): that gate uses a
+    HALF-window minPtsOffset vs. behavior.sync's hasAllPhotometryData's FULL
+    window, but it's computed against the SAME already-persisted trialTable
+    that behavior.sync's stricter gate has already zeroed
+    photometryCenterInIndex/photometrySideOutIndex on for any failing trial
+    -- so on that (already-gated) table, hasAllPhotometryData passing
+    algebraically implies hasP passing too (full-window threshold > half-window
+    threshold), and hasAllPhotometryData failing means the indices are already
+    0, which fails hasP's own bound regardless. hasP's practical effect is
+    therefore fully subsumed by hasAllPhotometryData on this pipeline's data --
+    no separate gate is needed here; peth_trial_table/zscore_windows already
+    reflect behavior.sync's gate via their own `photometry_*_index >= 0`
+    filtering upstream (pipeline.py).
     """
     rows = []
     for label, grp in trial_table.groupby(group_col, dropna=True):

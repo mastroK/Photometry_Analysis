@@ -19,6 +19,53 @@ def parse_session_id(session_dir):
     return session_dir.name, session_dir.parent.name
 
 
+PROCESSED_FILENAME_RE = re.compile(r"^processed_(?P<mouse>[A-Za-z0-9]+)_(?P<date>\d{6})\.mat$")
+
+
+def discover_sessions_from_processed_dir(processed_dir, raw_root):
+    """Parse an RA-curated individual_days/<condition>/ folder (see
+    2-Output/FP1_processed_data/individual_days/{none,DCZ,saline}) of
+    `processed_<mouse>_<date>.mat` files into the corresponding raw session
+    directories under raw_root/<date>/<mouse>/, matching this pipeline's own
+    <raw_root>/<date>/<mouse>/ convention (parse_session_id).
+
+    Only files matching processed_<mouse>_<date>.mat (mouse + a 6-digit
+    MMDDYY date) are considered -- non-matching files in the folder (helper
+    .m/.asv scripts, per-mouse processed_sum_<mouse>_<condition>.mat
+    aggregates) are skipped rather than raising.
+
+    Returns (session_dirs, missing): session_dirs is the sorted list of raw
+    Path objects that actually exist (safe to pass straight to
+    batch_processor.run_batch_sessions / run_cohort_qc.run_cohort_qc_for_sessions
+    / etc.); missing is a list of (mouse, date) pairs whose raw session
+    directory could not be found under raw_root, printed as a warning rather
+    than raised -- same soft-fail convention as the rest of this codebase.
+    """
+    processed_dir = Path(processed_dir)
+    raw_root = Path(raw_root)
+
+    session_dirs = []
+    missing = []
+    for path in sorted(processed_dir.glob("processed_*.mat")):
+        match = PROCESSED_FILENAME_RE.match(path.name)
+        if not match:
+            continue
+        mouse, date = match.group("mouse"), match.group("date")
+        session_dir = raw_root / date / mouse
+        if session_dir.is_dir():
+            session_dirs.append(session_dir)
+        else:
+            missing.append((mouse, date))
+
+    if missing:
+        print(f"WARNING: {len(missing)} processed file(s) in {processed_dir} have no "
+              f"matching raw session dir under {raw_root}:")
+        for mouse, date in missing:
+            print(f"  {mouse} {date}")
+
+    return session_dirs, missing
+
+
 def discover_behavior_files(session_dir):
     """Find the pokeHistory*.mat and stats*.mat files in a session directory,
     matching processBehavior.m:22-29's `dir('.')` + name-matching approach.

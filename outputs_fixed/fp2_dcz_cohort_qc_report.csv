@@ -1,0 +1,9 @@
+mouse,date,session_dir,xcorr_peak,sync_pass,n_trials,trials_pass,p_right,balance_pass,zscore_std,signal_range_pass,missing_frac,missing_pass,QC_PASS,error,manual_include
+WCL30,081423,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081423/WCL30,0.9998186618872145,True,433,True,0.48036951501154734,True,1.017022603500661,True,0.0,True,True,,True
+WCL30,081623,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081623/WCL30,0.9994734344100885,True,411,True,0.49635036496350365,True,1.010206388912677,True,0.0,True,True,,True
+WCL31,081523,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081523/WCL31,0.9435648380394159,True,455,True,0.5626373626373626,True,1.0209029243052505,True,0.0,True,True,,True
+WCL31,081723,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081723/WCL31,0.8498466799767657,True,563,True,0.5346358792184724,True,1.0156496873033838,True,0.0,True,True,,True
+WCL32,081623,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081623/WCL32,0.9321239462289164,True,396,True,0.5252525252525253,True,1.0202541721723226,True,0.0,True,True,,True
+WCL32,081823,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081823/WCL32,0.9995509257177527,True,313,True,0.5623003194888179,True,1.038603122488714,True,0.0,True,True,,True
+WCL33,081523,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081523/WCL33,0.9965060903227686,True,530,True,0.4641509433962264,True,1.0321123638797982,True,0.0,True,True,,True
+WCL33,081723,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP2/081723/WCL33,0.9970770398972411,True,597,True,0.5175879396984925,True,1.0012324885871466,True,0.0,True,True,,True

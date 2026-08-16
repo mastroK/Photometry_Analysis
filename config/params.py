@@ -48,6 +48,12 @@ class ChannelSelection:
 HEMISPHERE_CHANNELS = {
     "green_r": ChannelSelection(CH_GREEN_R, CH_G_CARRIER, 167.0, "green r"),
     "red_l": ChannelSelection(CH_RED_L, CH_R_CARRIER, 223.0, "red l"),
+    # Some mice in this cohort (e.g. WCL28) are implanted/recorded on the
+    # opposite side from the green_r norm -- same green carrier frequency,
+    # just read off CH_GREEN_L instead of CH_GREEN_R. Confirmed against that
+    # mouse's RA-processed params (channelNames/measuredCarrierFreq): green r
+    # reads 0 Hz (no signal) while green l reads the real ~167 Hz lock.
+    "green_l": ChannelSelection(CH_GREEN_L, CH_G_CARRIER, 167.0, "green l"),
 }
 DEFAULT_HEMISPHERE = "green_r"
 
@@ -67,25 +73,46 @@ FINAL_SAMPLE_FREQ_HZ = RAW_SAMPLE_FREQ_HZ / HOP_SAMPLES                  # ~18.5
 FINAL_TIME_STEP_SEC = 1.0 / FINAL_SAMPLE_FREQ_HZ                         # ~0.054 s ("18 bins ~= 1 s" in the stats scripts)
 
 # --- Baseline / normalization -------------------------------------------------
-# processNew.m:313 detrendWindowTime -- used for BOTH dF/F baseline and
-# rolling z-score here, from a SINGLE demodulated envelope pass (see
-# preprocessing/demodulate.py docstring for how/why this differs from
-# MATLAB's two-baseline scheme -- kept deliberately, per lab decision, as the
-# standard going forward since it's the physically cleaner convention).
+# processNew_fast_kevin.m:328 (params.detrendWindowTime=60) -- the reference
+# pipeline for this cohort (confirmed: its ptsKeep_before/after/finalSampleFreq/
+# detrendWindowTime match this cohort's saved processed_*.mat params exactly,
+# unlike vanilla processNew.m). Used for BOTH the raw-carrier rolling z-score
+# (pre-demodulation, at rawSampleFreq) and the final rolling z-score
+# (post-demodulation, at finalSampleFreq) in MATLAB's real double-pass
+# scheme -- see preprocessing/demodulate.py's compute_dff_and_zscore.
 BASELINE_WINDOW_SEC = 60.0
-BASELINE_WINDOW_SAMPLES = int(round(BASELINE_WINDOW_SEC * FINAL_SAMPLE_FREQ_HZ))  # ~1111 samples
+BASELINE_WINDOW_SAMPLES = int(round(BASELINE_WINDOW_SEC * FINAL_SAMPLE_FREQ_HZ))  # ~1111 samples == MATLAB's signalDetrendWindow
+LCM_CARRIERS = 36  # processNew_fast_kevin.m: lcm(carrierPtsPerCycle) for the 167/223 Hz carrier pair, confirmed via processed_WCL23_060223.mat's params.lcmCarriers
+RAW_BASELINE_WINDOW_SAMPLES = LCM_CARRIERS * int(
+    (BASELINE_WINDOW_SEC * RAW_SAMPLE_FREQ_HZ) // LCM_CARRIERS
+)  # MATLAB's rawDetrendWindow ~= 119988 samples @ 2000 Hz raw rate (confirmed exact match against a real session's saved params)
 
 # --- Behavior clock alignment (processBehavior.m) ----------------------------
 XCORR_MAX_LAG_POKES = 100                   # processBehavior.m:95
 XCORR_ACCEPT_THRESHOLD = 0.5                # processBehavior.m:102
 
+# --- Trial photometry-validity gates (processBehavior.m:284-308, processCeliaWord.m:101-108) ---
+# MATLAB's dropFirstDetrendWindow=1 is hardcoded true in every processNew*
+# variant, so minPtsOffset == signalDetrendWindow (full window) for the
+# primary hasAllPhotometryData gate that feeds the main reward-split PETH;
+# a SEPARATE, more lenient half-window gate (minPtsOffset=signalDetrendWindow/2)
+# is used by processCeliaWord.m/processByQuantiles.m/etc for word/sequence/
+# quantile-conditioned analyses -- these are genuinely two different MATLAB
+# gates, not a single convention, confirmed by direct source read.
+MIN_PTS_OFFSET_FULL = BASELINE_WINDOW_SAMPLES        # hasAllPhotometryData (main PETH)
+MIN_PTS_OFFSET_HALF = BASELINE_WINDOW_SAMPLES / 2.0  # hasP (word/sequence outcome analyses)
+
 # --- PETH window --------------------------------------------------------------
-# The legacy MATLAB pipeline uses ptsKeep_before/after in SAMPLES, tuned
-# per-session (e.g. 40/100 for WCL23 060223, vs. the generic template
-# default of 40/60 -- ptsKeep_after is evidently tuned per-experiment). We
-# use a plain +/- window in seconds for readability instead.
-PETH_PRE_SEC = 2.0
-PETH_POST_SEC = 4.0
+# processNew_fast_kevin.m's ptsKeep_before=40/ptsKeep_after=100 (SAMPLES),
+# confirmed a fixed script-wide constant, and confirmed uniform (40, 100)
+# across all 46 sessions in the FP1 "none" cohort's saved processed_*.mat
+# params -- not session-dependent, so hardcoded directly rather than read
+# per-session. (Vanilla processNew.m's generic default is 40/60 -- NOT what
+# this cohort was actually processed with.)
+PTS_KEEP_BEFORE_SAMPLES = 40
+PTS_KEEP_AFTER_SAMPLES = 100
+PETH_PRE_SEC = PTS_KEEP_BEFORE_SAMPLES / FINAL_SAMPLE_FREQ_HZ   # 2.16 s
+PETH_POST_SEC = PTS_KEEP_AFTER_SAMPLES / FINAL_SAMPLE_FREQ_HZ   # 5.4 s
 
 # --- PETH alignment event selection --------------------------------------------
 # Which trial_table column (photometry-clock sample index, from

@@ -14,6 +14,7 @@ from config.params import (
     FREQ_STEP_WIDTH_BINS,
     HOP_SAMPLES,
     INCL_FREQ_WIN_BINS,
+    RAW_BASELINE_WINDOW_SAMPLES,
     RAW_SAMPLE_FREQ_HZ,
     SPECTRAL_WINDOW_SAMPLES,
 )
@@ -92,20 +93,52 @@ def demodulate_envelope(
     return envelope, freqs[peak_bin]
 
 
-def compute_dff_and_zscore(envelope, window_samples=BASELINE_WINDOW_SAMPLES):
-    """From the single demodulated envelope, compute a rolling-baseline dF/F
-    and a rolling z-score. This is the lab's chosen standard going forward:
-    ONE demodulation pass, then both quantities derived from the same
-    rolling mean/std of that envelope -- simpler and physically cleaner than
-    MATLAB's two-baseline scheme (which rolling-z-scores the raw carrier
-    signal before demodulating, then demodulates twice, then rolling-z-scores
-    the demodulated trace again -- processNew.m:427-527).
+def compute_dff_and_zscore(raw_channel, carrier_freq, envelope, window_samples=BASELINE_WINDOW_SAMPLES,
+                            raw_window_samples=RAW_BASELINE_WINDOW_SAMPLES):
+    """MATLAB's real double-pass baseline/z-score scheme
+    (processNew_fast_kevin.m:447-541, rollingZ.m) -- confirmed the reference
+    implementation for this cohort (see config.params module docstring/
+    comments). This is NOT a single pass on one demodulated envelope; it's
+    two independent rolling-baseline passes at two different sample rates:
+
+      1. Rolling z-score of the RAW (undemodulated), carrier-modulated
+         signal, at the raw ~2kHz rate, BEFORE demodulation:
+         flSignal = (flRaw - movmean(flRaw, rawDetrendWindow)) / movstd(flRaw, rawDetrendWindow).
+      2. Demodulate that pre-z-scored trace -- a SEPARATE demodulation pass
+         from `envelope` (the plain single-pass demodulation of the raw
+         channel -- MATLAB's processed.signals_raw, informational only, not
+         used downstream by anything).
+      3. A SECOND, independent rolling z-score of THAT demodulated trace, at
+         the final ~18.52Hz rate (rollingZ.m) -- this is MATLAB's
+         processed.signals (pSignal), the value every PETH/GLM in the
+         reference pipeline actually uses.
+
+    `dff` has no MATLAB equivalent -- processNew_fast_kevin.m's rawf0/
+    signals_raw are never combined into a literal dF/F% anywhere in the
+    reference pipeline. Kept here as a Python-only convenience metric
+    (single-pass dF/F from the plain `envelope`, for visualization only) --
+    not expected to match any MATLAB output. `zscore` is the value that must
+    match, and does (see validation/compare_to_matlab.py).
     """
-    s = pd.Series(envelope)
-    rolling_mean = s.rolling(window_samples, center=True, min_periods=1).mean()
-    rolling_std = s.rolling(window_samples, center=True, min_periods=1).std(ddof=1)
+    raw_channel = np.asarray(raw_channel, dtype=float)
+    raw_s = pd.Series(raw_channel)
+    raw_mean = raw_s.rolling(raw_window_samples, center=True, min_periods=1).mean()
+    raw_std = raw_s.rolling(raw_window_samples, center=True, min_periods=1).std(ddof=1)
 
-    dff = (s - rolling_mean) / rolling_mean
-    zscore = (s - rolling_mean) / rolling_std
+    fl_signal = ((raw_s - raw_mean) / raw_std).to_numpy()
+    zero_std = (raw_std == 0).to_numpy()
+    fl_signal[zero_std] = 0.0  # processNew_fast_kevin.m's stdZeros guard
 
-    return dff.to_numpy(), zscore.to_numpy(), rolling_mean.to_numpy()
+    demodulated, _ = demodulate_envelope(fl_signal, carrier_freq)
+
+    final_s = pd.Series(demodulated)
+    final_mean = final_s.rolling(window_samples, center=True, min_periods=1).mean()
+    final_std = final_s.rolling(window_samples, center=True, min_periods=1).std(ddof=1)
+    # rollingZ.m has no zero-std guard on this second pass -- replicate as-is (can produce inf/nan).
+    zscore = ((final_s - final_mean) / final_std).to_numpy()
+
+    env_s = pd.Series(envelope)
+    env_mean = env_s.rolling(window_samples, center=True, min_periods=1).mean()
+    dff = ((env_s - env_mean) / env_mean).to_numpy()
+
+    return dff, zscore, env_mean.to_numpy()

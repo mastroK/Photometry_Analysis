@@ -76,7 +76,7 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     print(f"Demodulated envelope: {len(envelope)} samples at {FINAL_SAMPLE_FREQ_HZ:.4f} Hz "
           f"({len(envelope) / FINAL_SAMPLE_FREQ_HZ:.1f} s), locked to {locked_freq:.2f} Hz")
 
-    dff, zscore, baseline = compute_dff_and_zscore(envelope)
+    dff, zscore, baseline = compute_dff_and_zscore(raw[channels.signal_channel], measured_freq, envelope)
     time_axis = np.arange(len(envelope)) * FINAL_TIME_STEP_SEC
 
     # --- 4. behavior raw -> trial table -------------------------------------------

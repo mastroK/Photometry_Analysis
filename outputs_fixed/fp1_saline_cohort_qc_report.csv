@@ -1,0 +1,11 @@
+mouse,date,session_dir,xcorr_peak,sync_pass,n_trials,trials_pass,p_right,balance_pass,zscore_std,signal_range_pass,missing_frac,missing_pass,QC_PASS,error,manual_include
+WCL23,062623,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/062623/WCL23,0.9981320633365094,True,470,True,0.5276595744680851,True,1.020582471770175,True,0.0,True,True,,True
+WCL23,062823,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/062823/WCL23,0.9998423966170942,True,512,True,0.54296875,True,1.002281243357195,True,0.0,True,True,,True
+WCL24,062723,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/062723/WCL24,0.999689924725695,True,475,True,0.4884210526315789,True,1.031467083443443,True,0.0,True,True,,True
+WCL24,062923,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/062923/WCL24,0.9997547483156323,True,378,True,0.41798941798941797,True,1.016267568673969,True,0.0,True,True,,True
+WCL27,070523,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/070523/WCL27,0.9997824958467927,True,507,True,0.504930966469428,True,1.029190843174058,True,0.0,True,True,,True
+WCL27,070723,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/070723/WCL27,0.9993150119786528,True,570,True,0.49473684210526314,True,1.0163115902858968,True,0.0,True,True,,True
+WCL28,070423,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/070423/WCL28,0.9994247877481128,True,428,True,0.49065420560747663,True,1.0168932869837524,True,0.0,True,True,,True
+WCL28,070623,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/070623/WCL28,0.9995061161419234,True,429,True,0.46386946386946387,True,1.0184951048420614,True,0.0,True,True,,True
+WCL29,070523,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/070523/WCL29,0.9982102244795682,True,517,True,0.5415860735009671,True,1.0196261445260209,True,0.0,True,True,,True
+WCL29,070723,/Volumes/Neurobio/MICROSCOPE/Kevin/3-Experiments/2-Behavior/3-nosepoke_WL/1-Raw data/FP1/070723/WCL29,0.998700867409911,True,559,True,0.5259391771019678,True,1.028401332151083,True,0.0,True,True,,True

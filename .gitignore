@@ -1,8 +1,10 @@
 __pycache__/
 *.pyc
 .DS_Store
-*.parquet
-outputs/
-figures/
-*.png
-*.svg
+*_BACKUP_contaminated*
+
+# Large intermediate FIR design-matrix caches (400MB-2.9GB each) --
+# regeneratable from raw session data via rpe_analysis_prep.py, not
+# suited to git. Everything else under these dirs (peth windows, pooled
+# trial tables, fitted-model pickles, results/ CSVs) is kept.
+outputs_fixed/rpe_analysis*/fir_pooled.npz

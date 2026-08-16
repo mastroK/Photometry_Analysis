@@ -278,10 +278,16 @@ def build_and_fit_fir_glm(trial_table, continuous_signal, group_col=DEFAULT_GROU
 
 def build_pooled_fir_dataset(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal="zscore",
                               group_col=DEFAULT_GROUP_COLUMN, n_lags_seconds=DEFAULT_LAG_SECONDS,
-                              max_segments=None):
+                              max_segments=None, hemisphere_for_session=None):
     """Run every session_dir through pipeline.run_session and pool each
     session's own FIR design-matrix rows into one combined multi-session
     dataset.
+
+    hemisphere_for_session : optional callable(session_dir) -> hemisphere_key,
+        overriding the single `hemisphere` value per session -- see
+        batch_processor.run_batch_sessions's identically-named parameter.
+        Hemisphere is a per-session, not per-mouse, property in this cohort
+        (config/session_hemisphere_overrides.csv).
 
     Two passes: (1) load every session (soft-failing/skipping ones that
     error -- same convention as models.glm_data.build_pooled_glm_dataset /
@@ -313,8 +319,9 @@ def build_pooled_fir_dataset(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal
     for session_dir in session_dirs:
         session_dir = Path(session_dir)
         mouse, date = parse_session_id(session_dir)
+        session_hemisphere = hemisphere_for_session(session_dir) if hemisphere_for_session is not None else hemisphere
         try:
-            result = run_session(session_dir, hemisphere=hemisphere, max_segments=max_segments)
+            result = run_session(session_dir, hemisphere=session_hemisphere, max_segments=max_segments)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
             n_failed += 1
@@ -369,7 +376,7 @@ def build_pooled_fir_dataset(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal
 def build_and_fit_pooled_fir_glm(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal="zscore",
                                   group_col=DEFAULT_GROUP_COLUMN, n_lags_seconds=DEFAULT_LAG_SECONDS,
                                   max_segments=None, n_splits=DEFAULT_N_SPLITS, test_size=DEFAULT_TEST_SIZE,
-                                  alphas=DEFAULT_ALPHAS, random_state=0):
+                                  alphas=DEFAULT_ALPHAS, random_state=0, hemisphere_for_session=None):
     """Multi-session counterpart of build_and_fit_fir_glm: pool session_dirs
     via build_pooled_fir_dataset (see its docstring), then fit/reshape
     exactly as the single-session path does. Returns the same dict shape as
@@ -379,6 +386,7 @@ def build_and_fit_pooled_fir_glm(session_dirs, hemisphere=DEFAULT_HEMISPHERE, si
         build_pooled_fir_dataset(
             session_dirs, hemisphere=hemisphere, signal=signal, group_col=group_col,
             n_lags_seconds=n_lags_seconds, max_segments=max_segments,
+            hemisphere_for_session=hemisphere_for_session,
         )
     )
     mask_all = np.ones(len(y_pooled), dtype=bool)

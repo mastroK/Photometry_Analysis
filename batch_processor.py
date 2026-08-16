@@ -38,7 +38,8 @@ def discover_sessions(cohort_root):
 
 
 def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFAULT_HEMISPHERE,
-                        max_segments=None, align_event=DEFAULT_ALIGN_EVENT, qc_report_path=None):
+                        max_segments=None, align_event=DEFAULT_ALIGN_EVENT, qc_report_path=None,
+                        hemisphere_for_session=None, condition_label=None):
     """Run an explicit list of session directories through run_session(),
     attach cohort metadata, and write the concatenated per-trial result to
     output_path (.parquet or .csv, inferred from suffix).
@@ -60,6 +61,18 @@ def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFA
     qc_report_path, if given, is a cohort QC report CSV (see run_cohort_qc.py /
     qc.session_qc) -- session_dirs is filtered through
     qc.session_qc.filter_sessions_by_qc before processing.
+
+    hemisphere_for_session : optional callable(session_dir) -> hemisphere_key,
+        overriding the single `hemisphere` value per session -- see
+        run_cohort_qc.run_cohort_qc_for_sessions's identically-named
+        parameter (hemisphere is a per-session, not per-mouse, property in
+        this cohort; config/session_hemisphere_overrides.csv).
+
+    condition_label : optional string (e.g. "none"/"DCZ"/"saline") stamped
+        as a `condition` column on the master DataFrame, alongside the
+        existing mouse/date/hemisphere columns -- lets multiple conditions'
+        master tables be pooled and filtered later. Omitted (default) drops
+        the column entirely, preserving prior output exactly.
     """
     metadata_df = load_cohort_metadata(metadata_path)
     output_path = Path(output_path)
@@ -74,8 +87,9 @@ def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFA
 
     for session_dir in session_dirs:
         mouse, date = parse_session_id(session_dir)
+        session_hemisphere = hemisphere_for_session(session_dir) if hemisphere_for_session is not None else hemisphere
         try:
-            result = run_session(session_dir, hemisphere=hemisphere, max_segments=max_segments,
+            result = run_session(session_dir, hemisphere=session_hemisphere, max_segments=max_segments,
                                   align_event=align_event)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
@@ -86,7 +100,9 @@ def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFA
         session_df = result["trial_table"].copy()
         session_df["mouse"] = mouse
         session_df["date"] = date
-        session_df["hemisphere"] = hemisphere
+        session_df["hemisphere"] = session_hemisphere
+        if condition_label is not None:
+            session_df["condition"] = condition_label
 
         try:
             meta = get_mouse_metadata(metadata_df, mouse)
@@ -125,7 +141,8 @@ def run_batch_sessions(session_dirs, metadata_path, output_path, hemisphere=DEFA
 
 
 def run_batch(cohort_root, metadata_path, output_path, hemisphere=DEFAULT_HEMISPHERE,
-              max_segments=None, align_event=DEFAULT_ALIGN_EVENT, qc_report_path=None):
+              max_segments=None, align_event=DEFAULT_ALIGN_EVENT, qc_report_path=None,
+              hemisphere_for_session=None, condition_label=None):
     """Discover every session under cohort_root/<date>/<mouse>/ and run them
     all through run_batch_sessions(). See run_batch_sessions for the merge/
     export behavior; use that function directly to target an explicit subset
@@ -134,7 +151,8 @@ def run_batch(cohort_root, metadata_path, output_path, hemisphere=DEFAULT_HEMISP
     return run_batch_sessions(
         discover_sessions(cohort_root), metadata_path, output_path,
         hemisphere=hemisphere, max_segments=max_segments, align_event=align_event,
-        qc_report_path=qc_report_path,
+        qc_report_path=qc_report_path, hemisphere_for_session=hemisphere_for_session,
+        condition_label=condition_label,
     )
 
 

@@ -20,7 +20,8 @@ from pipeline import run_session
 
 
 def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
-                              hemisphere=DEFAULT_HEMISPHERE, max_segments=None):
+                              hemisphere=DEFAULT_HEMISPHERE, max_segments=None,
+                              hemisphere_for_session=None):
     """Run every session_dir through run_session(align_event=...) and stack
     each session's all_zscore_windows / peth_trial_table into one pooled
     (windows, trial_table) pair, tagged with mouse/date.
@@ -33,6 +34,14 @@ def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
     A session that fails (e.g. too few trials, alignment below the xcorr
     acceptance threshold) is logged and skipped, same soft-fail convention as
     batch_processor.run_batch_sessions.
+
+    hemisphere_for_session : optional callable(session_dir) -> hemisphere_key,
+        overriding the single `hemisphere` value per session -- see
+        batch_processor.run_batch_sessions's identically-named parameter.
+        Hemisphere is a per-session, not per-mouse, property in this cohort
+        (config/session_hemisphere_overrides.csv) -- pooling with one fixed
+        hemisphere across a session list spanning the mid-cohort channel
+        cutover would silently demodulate the wrong channel for half of it.
 
     Returns (peth_time, zscore_windows, pooled_trial_table):
       peth_time : (n_samples,) seconds-from-event offsets, shared across the
@@ -49,8 +58,9 @@ def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
 
     for session_dir in session_dirs:
         mouse, date = parse_session_id(session_dir)
+        session_hemisphere = hemisphere_for_session(session_dir) if hemisphere_for_session is not None else hemisphere
         try:
-            result = run_session(session_dir, hemisphere=hemisphere, max_segments=max_segments,
+            result = run_session(session_dir, hemisphere=session_hemisphere, max_segments=max_segments,
                                   align_event=align_event)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")

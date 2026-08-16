@@ -24,12 +24,29 @@ DEFAULT_OUTPUT = Path("outputs/cohort_qc_report.csv")
 _CHECK_COLUMNS = ["sync_pass", "trials_pass", "balance_pass", "signal_range_pass", "missing_pass"]
 
 
-def run_cohort_qc(cohort_roots, hemisphere=DEFAULT_HEMISPHERE, max_segments=None, output_path=DEFAULT_OUTPUT):
-    output_path = Path(output_path)
-    session_dirs = list(itertools.chain.from_iterable(discover_sessions(root) for root in cohort_roots))
+def run_cohort_qc_for_sessions(session_dirs, hemisphere=DEFAULT_HEMISPHERE, max_segments=None,
+                                output_path=DEFAULT_OUTPUT, hemisphere_for_session=None):
+    """Evaluate an explicit list of session directories (rather than
+    discovering them by walking a cohort_root -- see run_cohort_qc below for
+    that path) and write/update the QC report CSV.
 
-    rows = [evaluate_session_qc(session_dir, hemisphere=hemisphere, max_segments=max_segments)
-            for session_dir in session_dirs]
+    hemisphere_for_session : optional callable(session_dir) -> hemisphere_key,
+        overriding the single `hemisphere` value per session -- used by
+        run_condition_batch.py to apply a per-(mouse,date) hemisphere lookup
+        instead of one fixed value for every session in the batch.
+        Hemisphere is NOT just a per-mouse property in this cohort -- this
+        rig underwent a session-wide cutover mid-June 2023 (every mouse's
+        active channel switched from green_r to green_l on the same date),
+        so a callable keyed only by mouse can't express it; see
+        config/session_hemisphere_overrides.csv.
+    """
+    output_path = Path(output_path)
+    session_dirs = list(session_dirs)
+
+    rows = []
+    for session_dir in session_dirs:
+        session_hemisphere = hemisphere_for_session(session_dir) if hemisphere_for_session is not None else hemisphere
+        rows.append(evaluate_session_qc(session_dir, hemisphere=session_hemisphere, max_segments=max_segments))
     new_df = pd.DataFrame(rows)
     new_df["manual_include"] = new_df["QC_PASS"]
 
@@ -60,6 +77,19 @@ def run_cohort_qc(cohort_roots, hemisphere=DEFAULT_HEMISPHERE, max_segments=None
             print(f"  {row['mouse']} {row['date']}: failed {', '.join(failed_checks)}")
 
     return new_df
+
+
+def run_cohort_qc(cohort_roots, hemisphere=DEFAULT_HEMISPHERE, max_segments=None, output_path=DEFAULT_OUTPUT):
+    """Discover every session under cohort_root/<date>/<mouse>/ for each of
+    cohort_roots (batch_processor.discover_sessions) and evaluate them all
+    with a single fixed `hemisphere` -- see run_cohort_qc_for_sessions for
+    the explicit-session-list / per-mouse-hemisphere variant used by
+    run_condition_batch.py.
+    """
+    session_dirs = list(itertools.chain.from_iterable(discover_sessions(root) for root in cohort_roots))
+    return run_cohort_qc_for_sessions(
+        session_dirs, hemisphere=hemisphere, max_segments=max_segments, output_path=output_path,
+    )
 
 
 def main():

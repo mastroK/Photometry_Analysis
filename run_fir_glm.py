@@ -20,6 +20,12 @@ Usage:
         [--hemisphere green_r|red_l] [--signal dff|zscore] \\
         [--group-col reward_seq_3] [--lag-seconds 1.0] \\
         [--n-splits 10] [--test-size 0.2] [--max-segments N] [--output-dir DIR]
+
+Hemisphere is resolved PER SESSION from config/session_hemisphere_overrides.csv
+by default (falling back to config/mouse_hemisphere.csv, then --hemisphere) --
+see run_glm_analysis.py's module docstring for why (this rig's mid-cohort
+channel cutover means one fixed --hemisphere would be wrong for part of any
+multi-session pool spanning it).
 """
 
 import argparse
@@ -35,15 +41,19 @@ from models.fir_glm import (
 )
 from pipeline import DEFAULT_FIGURE_DIR
 from qc.session_qc import filter_sessions_by_qc
+from run_glm_analysis import DEFAULT_HEMISPHERE_LOOKUP, DEFAULT_SESSION_OVERRIDES, _build_hemisphere_resolver
 from viz.fir_plots import plot_fir_kernels
 
 
 def run_fir_glm(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal="zscore",
                  group_col=DEFAULT_GROUP_COLUMN, lag_seconds=DEFAULT_LAG_SECONDS,
                  n_splits=DEFAULT_N_SPLITS, test_size=DEFAULT_TEST_SIZE,
-                 max_segments=None, output_dir=None, qc_report_path=None):
+                 max_segments=None, output_dir=None, qc_report_path=None,
+                 hemisphere_lookup_path=DEFAULT_HEMISPHERE_LOOKUP,
+                 session_overrides_path=DEFAULT_SESSION_OVERRIDES):
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_FIGURE_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
+    hemisphere_for_session = _build_hemisphere_resolver(hemisphere_lookup_path, session_overrides_path, hemisphere)
 
     if qc_report_path is not None:
         session_dirs = filter_sessions_by_qc(session_dirs, qc_report_path)
@@ -51,6 +61,7 @@ def run_fir_glm(session_dirs, hemisphere=DEFAULT_HEMISPHERE, signal="zscore",
     fit = build_and_fit_pooled_fir_glm(
         session_dirs, hemisphere=hemisphere, signal=signal, group_col=group_col,
         n_lags_seconds=lag_seconds, max_segments=max_segments, n_splits=n_splits, test_size=test_size,
+        hemisphere_for_session=hemisphere_for_session,
     )
     cv = fit["cv_results"]
     mice = [info["mouse"] for info in fit["session_info"]]
@@ -111,12 +122,17 @@ def main():
     parser.add_argument("--qc-report", type=Path, default=None,
                          help="Cohort QC report CSV (see run_cohort_qc.py) -- if given, session_dirs is filtered "
                               "through qc.session_qc.filter_sessions_by_qc before pooling")
+    parser.add_argument("--hemisphere-lookup", type=Path, default=DEFAULT_HEMISPHERE_LOOKUP,
+                         help=f"Per-mouse hemisphere fallback CSV (default: {DEFAULT_HEMISPHERE_LOOKUP})")
+    parser.add_argument("--session-overrides", type=Path, default=DEFAULT_SESSION_OVERRIDES,
+                         help=f"Per-(mouse,date) hemisphere override CSV, checked first (default: {DEFAULT_SESSION_OVERRIDES})")
     args = parser.parse_args()
 
     run_fir_glm(
         args.session_dirs, hemisphere=args.hemisphere, signal=args.signal, group_col=args.group_col,
         lag_seconds=args.lag_seconds, n_splits=args.n_splits, test_size=args.test_size,
         max_segments=args.max_segments, output_dir=args.output_dir, qc_report_path=args.qc_report,
+        hemisphere_lookup_path=args.hemisphere_lookup, session_overrides_path=args.session_overrides,
     )
 
 

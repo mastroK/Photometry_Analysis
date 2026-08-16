@@ -1,0 +1,11 @@
+{
+  "analysis1": {
+    "wilcoxon_stat": 0.0,
+    "wilcoxon_p": 0.0625
+  },
+  "analysis2": {
+    "wilcoxon_stat": 5.0,
+    "wilcoxon_p": 0.625,
+    "n_positive": 3
+  }
+}

@@ -1,6 +1,8 @@
 """
 Behavior-clock <-> photometry-clock alignment. Direct translation of
-processBehavior.m:56-186.
+processBehavior.m:56-308 (xcorr fitting, event-index resolution, and the
+hasAllPhotometryData trial-validity gate), against processNew_fast_kevin.m --
+the confirmed reference implementation for this cohort.
 """
 
 import numpy as np
@@ -12,6 +14,9 @@ from config.params import (
     CH_RIGHTPORT,
     FINAL_TIME_STEP_SEC,
     HOP_SAMPLES,
+    MIN_PTS_OFFSET_FULL,
+    PTS_KEEP_AFTER_SAMPLES,
+    PTS_KEEP_BEFORE_SAMPLES,
     RAW_SAMPLE_FREQ_HZ,
     XCORR_ACCEPT_THRESHOLD,
     XCORR_MAX_LAG_POKES,
@@ -108,95 +113,119 @@ def align_behavior_to_photometry(raw, trial_table, poke_history, n_final_samples
     time_shift = center_times_p_adj[0]
     print(f"  time_shift (anchor) used for index conversion = {time_shift:.4f} s")
 
+    # processBehavior.m:14-18 (extractTrials_dataTable.m) zeros trial_table's
+    # own side_in_time/center_in_time to the BEHAVIOR-clock time of this same
+    # first-matched center poke (first_b_poke_index), not to the session's
+    # very first logged poke -- behavior.trial_table.poke_times_seconds uses
+    # poke_history[0] as t=0 for every trial regardless, so t_anchor_b below
+    # converts back to that same first-matched-poke epoch before combining
+    # with the (photometry-clock) time_shift anchor. Confirmed empirically
+    # against a real MATLAB reference session: without this correction,
+    # every resolved photometry sample index is off by a large (tens-of-
+    # seconds), non-constant amount -- this single line is the fix for that.
+    t_anchor_b = center_times_b_adj[0]
+
     trial_table = trial_table.copy()
     trial_table["matched_side_in_index"] = np.floor(
-        (trial_table["side_in_time"] + time_shift) / FINAL_TIME_STEP_SEC
+        (trial_table["side_in_time"] - t_anchor_b + time_shift) / FINAL_TIME_STEP_SEC
+    ).astype(int)
+    trial_table["matched_center_in_index"] = np.floor(
+        (trial_table["center_in_time"] - t_anchor_b + time_shift) / FINAL_TIME_STEP_SEC
     ).astype(int)
 
-    # --- snap to the nearest real rising edge on the final-rate grid -----------------
-    # (processBehavior.m:189-231)
+    # --- resolve raw-rate edge indices, block-summed onto the final-rate grid ------
+    # (processBehavior.m:189-274)
     right_rising_final, left_rising_final = _final_rate_rising_edges(raw, n_final_samples)
     right_falling_final = _final_rate_edges(raw, CH_RIGHTPORT, n_final_samples, edge=-1)
     left_falling_final = _final_rate_edges(raw, CH_LEFTPORT, n_final_samples, edge=-1)
+    side_falling_final = np.union1d(right_falling_final, left_falling_final)
     center_rising_final = _final_rate_edges(raw, CH_CENTERPORT, n_final_samples, edge=1)
     center_falling_final = _final_rate_edges(raw, CH_CENTERPORT, n_final_samples, edge=-1)
 
     n_trials = len(trial_table)
+    matched_side_in = trial_table["matched_side_in_index"].to_numpy()
+    matched_center_in = trial_table["matched_center_in_index"].to_numpy()
+    chose_right = trial_table["chose_right"].to_numpy()
+
+    def _closest(candidates, target):
+        """closest.m: nearest by absolute difference, ties -> first/lowest
+        index (np.argmin's own tie-break, matching MATLAB's min())."""
+        return candidates[np.argmin(np.abs(candidates - target))]
+
+    # --- photometry_center_in_index: UNCONDITIONAL nearest-match, no tolerance ------
+    # (processBehavior.m:201,230-231 -- MATLAB always snaps, however far)
+    photometry_center_in_index = np.full(n_trials, -1, dtype=int)
+    if len(center_rising_final) > 0:
+        for i in range(n_trials):
+            photometry_center_in_index[i] = _closest(center_rising_final, matched_center_in[i])
+
+    # --- photometry_side_in_index: unconditional nearest-match, branched by side ----
+    # (processBehavior.m:199-200,220-229 -- already correct, kept as-is)
     photometry_side_in_index = np.full(n_trials, -1, dtype=int)
-    photometry_side_out_index = np.full(n_trials, -1, dtype=int)
-
-    for i, row in trial_table.iterrows():
-        side_candidates = right_rising_final if row["chose_right"] else left_rising_final
+    for i in range(n_trials):
+        side_candidates = right_rising_final if chose_right[i] else left_rising_final
         if len(side_candidates) > 0:
-            nearest = side_candidates[np.argmin(np.abs(side_candidates - row["matched_side_in_index"]))]
-            photometry_side_in_index[i] = nearest
+            photometry_side_in_index[i] = _closest(side_candidates, matched_side_in[i])
 
-        # side-out: the first falling edge on the SAME port the trial entered,
-        # occurring at/after that trial's own side-in index (the animal must
-        # still be in the port at side-in, so its exit comes later).
-        if photometry_side_in_index[i] >= 0:
-            falling_candidates = right_falling_final if row["chose_right"] else left_falling_final
-            after = falling_candidates[falling_candidates >= photometry_side_in_index[i]]
+    # --- photometry_center_out_index: forward search from center_in, unbounded ------
+    # (processBehavior.m:196,233-242 -- first falling edge >= center_in, no upper bound)
+    photometry_center_out_index = np.full(n_trials, -1, dtype=int)
+    is_photometry_trial = np.zeros(n_trials, dtype=bool)
+    if len(center_falling_final) > 0:
+        for i in range(n_trials):
+            if photometry_center_in_index[i] < 0:
+                continue
+            after = center_falling_final[center_falling_final >= photometry_center_in_index[i]]
+            if len(after) > 0:
+                photometry_center_out_index[i] = after[0]
+                is_photometry_trial[i] = True
+            # else: no match -> WARNING in MATLAB, isPhotometryTrial stays False, index stays -1
+
+    # --- de-dup fixup (processBehavior.m:268-274): fix the SECOND of any pair of
+    # consecutive trials that resolved to the identical center_out index -----------
+    center_out_valid = photometry_center_out_index >= 0
+    dup = (photometry_center_out_index[:-1] == photometry_center_out_index[1:]) & center_out_valid[:-1] & center_out_valid[1:]
+    dup_second_idx = np.flatnonzero(dup) + 1
+    dup_second_idx = dup_second_idx[photometry_center_in_index[dup_second_idx] >= 0]
+    photometry_center_out_index[dup_second_idx] = photometry_center_in_index[dup_second_idx]
+
+    # --- photometry_side_out_index: forward search from CENTER_IN (not side_in),
+    # union of both L+R falling edges (not just the trial's own chosen side) -------
+    # (processBehavior.m:197,244-251)
+    photometry_side_out_index = np.full(n_trials, -1, dtype=int)
+    if len(side_falling_final) > 0:
+        for i in range(n_trials):
+            if photometry_center_in_index[i] < 0:
+                continue
+            after = side_falling_final[side_falling_final >= photometry_center_in_index[i]]
             if len(after) > 0:
                 photometry_side_out_index[i] = after[0]
+            else:
+                is_photometry_trial[i] = False
+                # else: no match -> WARNING in MATLAB, isPhotometryTrial=False, index stays -1
 
+    # --- hasAllPhotometryData gate (processBehavior.m:284-308): the primary
+    # trial-validity gate feeding the main reward-split PETH -- re-invalidate
+    # ALL FOUR indices for any trial that isn't a real photometry trial (both
+    # center-out and side-out resolved) or doesn't leave enough margin for a
+    # full PETH window on either side. dropFirstDetrendWindow=1 is hardcoded
+    # in every processNew* variant, so the FULL signalDetrendWindow is used
+    # here (see config.params.MIN_PTS_OFFSET_FULL vs the separate, more
+    # lenient MIN_PTS_OFFSET_HALF used by behavior.word_encoding's hasP gate).
+    has_all_photometry_data = (
+        is_photometry_trial
+        & (photometry_center_in_index > (PTS_KEEP_BEFORE_SAMPLES + MIN_PTS_OFFSET_FULL))
+        & (photometry_side_out_index < (n_final_samples - PTS_KEEP_AFTER_SAMPLES))
+    )
+    for arr in (photometry_center_in_index, photometry_center_out_index,
+                photometry_side_in_index, photometry_side_out_index):
+        arr[~has_all_photometry_data] = -1
+
+    trial_table["photometry_center_in_index"] = photometry_center_in_index
+    trial_table["photometry_center_out_index"] = photometry_center_out_index
     trial_table["photometry_side_in_index"] = photometry_side_in_index
     trial_table["photometry_side_out_index"] = photometry_side_out_index
-
-    # --- center-in: offset from the already-resolved side-in index -----------------
-    # Unlike side pokes (exactly one per trial, well-separated), the raw center
-    # channel also fires on every incomplete/repeated center poke that never led
-    # to a scored trial -- confirmed directly against this session (420 isTRIAL==1
-    # center pokes vs only 361 completed trials), with >10% of consecutive raw
-    # center edges under 0.2s apart, so nearest-edge snapping from a single
-    # session-wide `time_shift` anchor (like side-in above) is ambiguous, and a
-    # rank-matched lookup against ALL raw center pokes was tried and found to be
-    # unreliable (produced a photometry-clock center-in-to-side-in interval with a
-    # median of ~27s, vs. the true ~0.3s from the behavior clock). Instead, each
-    # trial's own center-in is resolved relative to its OWN already-correct
-    # side-in index: the behavior-clock center-to-side delta is reliable (matches
-    # the task's <1s selection requirement), so converting it to samples and
-    # subtracting from photometry_side_in_index gives an accurate estimate, which
-    # is then snapped to the nearest real center-channel edge only if one exists
-    # within a small tolerance (avoiding the dense-poke ambiguity above).
-    CENTER_SNAP_TOLERANCE_BINS = 3
-    dt_center_to_side_samples = np.round(
-        (trial_table["side_in_time"] - trial_table["center_in_time"]) / FINAL_TIME_STEP_SEC
-    ).to_numpy().astype(int)
-    photometry_center_in_index = np.where(
-        photometry_side_in_index >= 0, photometry_side_in_index - dt_center_to_side_samples, -1
-    )
-    if len(center_rising_final) > 0:
-        for i, target in enumerate(photometry_center_in_index):
-            if target < 0:
-                continue
-            nearest = center_rising_final[np.argmin(np.abs(center_rising_final - target))]
-            if abs(nearest - target) <= CENTER_SNAP_TOLERANCE_BINS:
-                photometry_center_in_index[i] = nearest
-    trial_table["photometry_center_in_index"] = photometry_center_in_index
-
-    # --- center-out: first falling edge on the center channel, bounded to this
-    # trial's own [center_in, side_in) window -- the animal must fully leave the
-    # center port before entering the side port, so a fall outside that window
-    # cannot be this trial's own center-out. Searching unbounded (any fall
-    # anywhere at/after center_in) was tried and found to occasionally skip
-    # over a genuinely absent/undetected fall and grab a much later trial's
-    # fall instead (up to 20s later, violating center_out <= side_in for ~26%
-    # of trials in the WCL23/060223 validation session); bounding leaves
-    # center_out unresolved (-1) for those trials instead of assigning a wrong
-    # value.
-    photometry_center_out_index = np.full(n_trials, -1, dtype=int)
-    if len(center_falling_final) > 0:
-        for i, center_in_idx in enumerate(photometry_center_in_index):
-            side_in_idx = photometry_side_in_index[i]
-            if center_in_idx < 0 or side_in_idx < 0:
-                continue
-            candidates = center_falling_final[
-                (center_falling_final >= center_in_idx) & (center_falling_final < side_in_idx)
-            ]
-            if len(candidates) > 0:
-                photometry_center_out_index[i] = candidates[0]
-    trial_table["photometry_center_out_index"] = photometry_center_out_index
+    trial_table["has_all_photometry_data"] = has_all_photometry_data
 
     # 'outcome' (reward delivery/feedback) has no independently-timestamped raw
     # signal in this rig -- see config.params.ALIGN_EVENT_COLUMNS for why this
@@ -213,19 +242,7 @@ def align_behavior_to_photometry(raw, trial_table, poke_history, n_final_samples
         idx = trial_table[index_col].to_numpy()
         trial_table[col] = np.where(idx >= 0, idx * FINAL_TIME_STEP_SEC, np.nan)
 
-    valid_all_four = (
-        (photometry_center_in_index >= 0) & (photometry_center_out_index >= 0)
-        & (photometry_side_in_index >= 0) & (photometry_side_out_index >= 0)
-    )
-    ordered = (
-        (trial_table["center_in_s"] <= trial_table["center_out_s"])
-        & (trial_table["center_out_s"] <= trial_table["side_in_s"])
-        & (trial_table["side_in_s"] <= trial_table["side_out_s"])
-    )
-    n_out_of_order = int((valid_all_four & ~ordered).sum())
-    if n_out_of_order:
-        print(f"  WARNING: {n_out_of_order}/{int(valid_all_four.sum())} trials with all 4 events "
-              "resolved are NOT in center_in <= center_out <= side_in <= side_out order")
+    print(f"  hasAllPhotometryData: {int(has_all_photometry_data.sum())}/{n_trials} trials valid")
 
     align_info = dict(time_shift=time_shift, xcorr_peak=max_val, index_shift=p_to_b_shift)
     return trial_table, align_info
