@@ -1,0 +1,17 @@
+{
+  "session": "WCL23_060223",
+  "hemisphere": "green_r",
+  "n_trials": 336,
+  "n_peth_trials": 336,
+  "zscore_hash": "915b8329482d5a49e3e61ae0b228f8bf09dd503f8fc01903784f48f9691b8e94",
+  "zscore_mean": 0.003810902049487011,
+  "zscore_std": 1.0292511834111961,
+  "all_zscore_windows_hash": "339fa06672195ca8c2521267d63693f125243457c847a4a6958f78dc9557f0da",
+  "all_zscore_windows_shape": [
+    336,
+    141
+  ],
+  "peak_z_side_in_mean": 1.315199787089813,
+  "auc_side_in_mean": -0.43628721871060555,
+  "was_rewarded_sum": 238
+}

@@ -56,7 +56,19 @@ DEFAULT_FIGURE_DIR = Path(__file__).parent / "figures"
 
 
 def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, output_dir=None,
-                 compute_bandit_state=True, align_event=DEFAULT_ALIGN_EVENT):
+                 compute_bandit_state=True, align_event=DEFAULT_ALIGN_EVENT, force_nominal_carrier_freq=False):
+    """force_nominal_carrier_freq : skip estimate_carrier_freq's own free-ranging
+    FFT peak search (over the WHOLE raw spectrum) and instead demodulate directly
+    at channels.nominal_carrier_freq_hz. Added for the SM cohort's cross-talk
+    investigation -- estimate_carrier_freq's global peak search can be fooled on
+    a weak/noisy channel (e.g. by a stronger low-frequency drift component, or by
+    cross-talk from a neighboring channel's much stronger real carrier), silently
+    mis-locking onto the wrong frequency entirely rather than finding the real,
+    if weak, oscillation actually present near the channel's own true carrier.
+    demodulate_envelope still does its own narrow-band refinement around
+    whatever frequency it's given, so this simply anchors that refinement at the
+    channel's real intended frequency instead of an unconstrained global guess.
+    """
     if align_event not in ALIGN_EVENT_COLUMNS:
         raise ValueError(f"Unknown align_event {align_event!r}; must be one of {list(ALIGN_EVENT_COLUMNS)}")
     session_dir = Path(session_dir)
@@ -68,9 +80,14 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     raw = load_raw_photometry(photo_dir, max_segments=max_segments)
 
     # --- 2/3. carrier estimate + demodulate --------------------------------------
-    measured_freq, _ = estimate_carrier_freq(raw[channels.signal_channel])
-    print(f"Estimated carrier freq for signal channel: {measured_freq:.3f} Hz "
-          f"(nominal {channels.nominal_carrier_freq_hz} Hz)")
+    if force_nominal_carrier_freq:
+        measured_freq = channels.nominal_carrier_freq_hz
+        print(f"Forcing nominal carrier freq for signal channel: {measured_freq} Hz "
+              f"(estimate_carrier_freq's free-ranging search skipped)")
+    else:
+        measured_freq, _ = estimate_carrier_freq(raw[channels.signal_channel])
+        print(f"Estimated carrier freq for signal channel: {measured_freq:.3f} Hz "
+              f"(nominal {channels.nominal_carrier_freq_hz} Hz)")
 
     envelope, locked_freq = demodulate_envelope(raw[channels.signal_channel], measured_freq)
     print(f"Demodulated envelope: {len(envelope)} samples at {FINAL_SAMPLE_FREQ_HZ:.4f} Hz "
@@ -174,7 +191,7 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
 
     output_dir = Path(output_dir) if output_dir is not None else DEFAULT_FIGURE_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_stem = output_dir / f"{mouse}_{date}_{align_event}_session_overview"
+    out_stem = output_dir / f"{mouse}_{date}_{hemisphere}_{align_event}_session_overview"
     figure_path_png = out_stem.with_suffix(".png")
     figure_path_svg = out_stem.with_suffix(".svg")
     fig.savefig(figure_path_png, dpi=150)

@@ -54,6 +54,10 @@ HEMISPHERE_CHANNELS = {
     # mouse's RA-processed params (channelNames/measuredCarrierFreq): green r
     # reads 0 Hz (no signal) while green l reads the real ~167 Hz lock.
     "green_l": ChannelSelection(CH_GREEN_L, CH_G_CARRIER, 167.0, "green l"),
+    # Added for the SM (PV-dualphotometry) cohort's cross-talk/carrier-frequency
+    # investigation -- SM's raw layout defines this channel (processNew_Sean.m)
+    # but it had no WCL-era caller, so it was never wired up here before.
+    "red_r": ChannelSelection(CH_RED_R, CH_R_CARRIER, 223.0, "red r"),
 }
 DEFAULT_HEMISPHERE = "green_r"
 
@@ -186,15 +190,30 @@ DECAY_MAX_TAU_RATIO = 1.0  # skip the fit if fitted tau exceeds this x the fitte
 
 # Metric window used specifically for onset/decay fitting -- deliberately
 # WIDER than DECISION_WINDOW_S (which peak/AUC still use unchanged).
-# Confirmed directly on the real pooled FP1+FP2 dataset: with DECISION_WINDOW_S
-# (0, 1.0s), the trial-averaged reward response peaks so close to the window's
-# own right edge that 21/22 mouse x reward/omission groups had fewer than
-# DECAY_MIN_POST_PEAK_SAMPLES left to fit a decay on at all (95% skip rate) --
-# not a fitting bug, just too narrow a window to see any decay. (0, 3.0s)
-# (spanning DECISION_WINDOW_S + REWARD_WINDOW_S) dropped that to 8/22 (36%),
-# with the remaining skips being genuine ambiguous-decay cases, not artifacts
-# of an overly strict window. User-approved as the first-pass choice.
-KINETICS_METRIC_WINDOW_S = (0.0, 3.0)
+#
+# Revised after a dedicated contamination investigation (validation/
+# KINETICS_VALIDATION_REPORT.md): this task has no fixed inter-trial interval,
+# so 87-89% of trials have the NEXT trial's own outcome event falling inside
+# a fixed 5.4s post-event window -- not a rare edge case, the modal situation.
+# Per-mouse censoring analysis (masking each trial's window at the next
+# trial's own onset) found a well-powered, contamination-robust region for
+# every one of the 11 FP1+FP2 mice, but that region's upper edge varies by
+# mouse (1.78s-2.75s post-outcome; see that report's Step-1 table). 1.75s is
+# the largest window that stays within EVERY mouse's own well-powered region
+# (just under WCL24's 1.78s, the tightest of the 11) -- a single cohort-wide
+# window valid for all mice, rather than a variable per-mouse one.
+#
+# The original (0, 3.0s) choice (see git history / prior comment here) was
+# picked only to get enough post-peak samples for the exponential fit to
+# converge at all -- it was never checked against contamination risk, and per
+# that same report, the reward-locked response is NOT a discrete bump-then-
+# decay transient at all but a slow signal that tracks recent win/loss
+# history and does not return to baseline within the window. Note WCL25/
+# WCL30 specifically: per that report, their tercile divergence is at least
+# partly a next-trial content-autocorrelation artifact even in this
+# well-powered region, not a clean per-trial signal -- caveat or exclude them
+# in any downstream use of these two mice's kinetics numbers.
+KINETICS_METRIC_WINDOW_S = (0.0, 1.75)
 
 # Default word/sequence columns (and how many top-N most frequent patterns
 # per column) shown by pipeline.py's demo outcome summary table.
