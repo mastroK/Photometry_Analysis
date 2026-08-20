@@ -4,7 +4,7 @@ Event-aligned window extraction -- the Python equivalent of extractMatrix.m.
 
 import numpy as np
 
-from config.params import ALIGN_EVENT_COLUMNS
+from config.params import ALIGN_EVENT_COLUMNS, FINAL_SAMPLE_FREQ_HZ
 
 
 def get_event_indices(trial_table, align_event):
@@ -139,3 +139,42 @@ def compute_per_trial_event_metrics(
     peak[valid] = z[:, metric_mask].max(axis=1)
     auc[valid] = np.trapz(z[:, metric_mask], dx=dx, axis=1)
     return peak, auc
+
+
+def truncate_windows_after_side_out(windows, peth_time, trial_table,
+                                     align_col="photometry_side_in_index",
+                                     side_out_col="photometry_side_out_index",
+                                     margin_s=0.0):
+    """NaN out each trial's own post-side_out samples in an already-extracted,
+    already-baselined PETH window array -- e.g. a side_in-aligned window
+    currently runs a fixed PETH_POST_SEC past the event regardless of when
+    that trial's animal actually left the port, so a "sustained" response
+    late in the window can't be distinguished from post-departure/return-to-
+    center activity. Applying this AFTER compute_event_aligned_zscore (not
+    before) matters: baseline normalization needs the intact pre-event data,
+    and truncating raw dff first would corrupt it for no reason since only
+    the post-event tail is ever affected.
+
+    windows : (n_trials, n_samples) array, e.g. output of extract_peth or
+        compute_event_aligned_zscore -- row-aligned with `trial_table`.
+    trial_table : row-aligned with `windows` (e.g. extract_event_peth's
+        peth_trial_table), must have both `align_col` and `side_out_col`.
+    margin_s : added to each trial's own dwell time before truncating, in
+        case a small buffer past side_out is wanted instead of an exact cut.
+
+    Returns a NEW float array (never mutates `windows` in place); samples
+    after a trial's own (side_out - align) latency + margin_s become NaN.
+    Downstream per-timepoint fits (models.glm_encoding.fit_time_resolved_glm's
+    smf.ols(..., missing="drop")) already drop NaN rows cleanly per timepoint
+    -- no changes needed there.
+    """
+    windows = np.asarray(windows, dtype=float)
+    peth_time = np.asarray(peth_time)
+
+    align_idx = trial_table[align_col].to_numpy()
+    side_out_idx = trial_table[side_out_col].to_numpy()
+    latency_s = (side_out_idx - align_idx) / FINAL_SAMPLE_FREQ_HZ
+
+    # peth_time[None, :] broadcasts against latency_s[:, None] -- one keep-mask row per trial.
+    keep = peth_time[None, :] <= (latency_s[:, None] + margin_s)
+    return np.where(keep, windows, np.nan)

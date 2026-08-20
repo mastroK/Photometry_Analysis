@@ -23,10 +23,26 @@ STAY_HISTORY_FAMILY = ["aaa", "Aaa", "AAa"]
 
 
 def _plot_peth(ax, peth_time, windows, label, color):
+    """NaN-aware mean/SEM per timepoint -- matters once a caller passes
+    windows containing per-trial NaN tails (e.g. pipeline.run_session's
+    truncate_at_side_out). A plain .mean(axis=0) propagates NaN from a
+    SINGLE trial into the whole group's value at that column, so a big
+    group (more trials -> higher chance one of them left the port early)
+    would visually cut off much sooner than a small group -- an artifact of
+    sample size colliding with the first NaN, not a real difference in how
+    long each group has data for. Using nanmean/nanstd with a per-timepoint
+    valid-trial count instead makes every panel's cutoff reflect actual data
+    availability, consistently, regardless of group size.
+    """
     if windows.shape[0] == 0:
         return
-    mean = windows.mean(axis=0)
-    sem = windows.std(axis=0, ddof=1) / np.sqrt(windows.shape[0])
+    n_valid = np.sum(~np.isnan(windows), axis=0)
+    with np.errstate(invalid="ignore"):
+        mean = np.nanmean(windows, axis=0)
+        sem = np.nanstd(windows, axis=0, ddof=1) / np.sqrt(n_valid)
+    enough = n_valid >= 2  # nanstd(ddof=1) on <2 values is undefined/NaN already, mask explicitly for clarity
+    mean = np.where(enough, mean, np.nan)
+    sem = np.where(enough, sem, np.nan)
     ax.plot(peth_time, mean, color=color, label=f"{label} (n={windows.shape[0]})")
     ax.fill_between(peth_time, mean - sem, mean + sem, color=color, alpha=0.25)
 

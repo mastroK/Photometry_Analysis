@@ -279,3 +279,109 @@ QDIFF_N_BINS = 3
 DEFAULT_TIME_RESOLVED_GLM_FORMULA = (
     "Z ~ Choice * Reward + Reward_lag1 + Reward_lag2 + Reward_lag3 + Q_diff_abs + C(Behavioral_State)"
 )
+
+# Expanded formula (see behavior/switch_dynamics.py): adds signed RPE/|RPE|,
+# Q_unchosen, choice history, a model-implied continuous belief signal, and
+# explicit switch-dynamics regressors (ground-truth true_switch, post-switch
+# trial trajectory, first win/loss after switch, a retrospective
+# detected_switch). Deliberately leaves out Q_total, trials_since_switch_sq,
+# and switch_detection_lag on this first pass to keep the design more
+# tractable/interpretable (all three are still computed and available in
+# trial_table for a follow-up formula). A separate constant from
+# DEFAULT_TIME_RESOLVED_GLM_FORMULA -- existing callers of the default
+# formula are completely unaffected.
+#
+# Q_chosen is DELIBERATELY excluded, not just deprioritized: RPE is defined
+# as Reward - Q_chosen, so with both Reward and RPE in the model, Q_chosen is
+# an exact linear combination of the other two -- confirmed via VIF (infinite
+# VIF for all three when included together). Q_unchosen carries independent
+# information (not collinear -- VIF ~2) and is kept.
+EXPANDED_TIME_RESOLVED_GLM_FORMULA = (
+    "Z ~ Choice * Reward + Reward_lag1 + Reward_lag2 + Reward_lag3 "
+    "+ Choice_lag1 + Choice_lag2 + Choice_lag3 "
+    "+ RPE + RPE_abs + Q_unchosen + belief_p_right "
+    "+ true_switch + trials_since_switch + trials_since_switch_expdecay "
+    "+ first_win_after_switch + first_loss_after_switch + detected_switch "
+    "+ Choice:RPE + C(Behavioral_State)"
+)
+
+# --- Simplified model series (run_model_series_comparison.py) -----------------
+# A much lower-parameter-count ladder of models (per Bernardo's proposal),
+# fit/compared before layering RPE/Q-values/behavioral state back on top of
+# whichever structure wins. Port is +1/-1 (right/left) rather than Choice's
+# 0/1, per that discussion; reward_seq_2/3 (behavior/word_encoding.py's
+# add_reward_seq_2 / add_lag_features) and word_l1/l2/l3 (behavior/
+# word_encoding.py's add_word_labels) are strictly-retrospective and
+# current-trial-inclusive history encodings, respectively -- see
+# run_model_series_comparison.py's module docstring for the full rationale.
+#
+# Model 1: side_in (Intercept) + Reward + Port + Port:Reward.
+MODEL1_FORMULA = "Z ~ Reward + Port + Port:Reward"
+
+# Model 2: Model 1 with Reward replaced by a 2-bit or 3-bit strictly-
+# retrospective reward-history categorical (Port is kept).
+MODEL2_2BIT_FORMULA = "Z ~ C(reward_seq_2) + Port"
+MODEL2_3BIT_FORMULA = "Z ~ C(reward_seq_3) + Port"
+
+# Model 2b: increasing "word" (choice+outcome) complexity. No separate Port
+# term -- word_l1's 4 levels {R,r,L,l} already encode current-trial port and
+# reward jointly (in fact Z ~ C(word_l1) is the same model as MODEL1_FORMULA
+# in a different coding -- both should fit to the same R^2), so adding Port
+# alongside any word_lN term would just be collinear with it.
+MODEL2B_WORD_FORMULAS = {
+    1: "Z ~ C(word_l1)",
+    2: "Z ~ C(word_l2)",
+    3: "Z ~ C(word_l3)",
+}
+
+# Model 3: replaces the word categorical with the sticky Q-learning model's
+# own value estimates -- RPE (Reward - Q_chosen, behavior/switch_dynamics.py)
+# for the current trial's own outcome-surprise, Q_diff (Q_right - Q_left,
+# external/bandit_state_adapter.py) binned into MODEL3_QDIFF_N_BINS quantile
+# bins for the history-driven left/right preference axis, plus Port. Sanity-
+# checked against real FP2_none data before building this: Q_diff predicts
+# actual choice well (AUC 0.87-0.94 per mouse) and separates word_l2
+# categories almost perfectly along the same left/right axis (categories
+# whose older trial was left-rewarded cluster at very negative Q_diff,
+# right-rewarded at very positive, everything else -- an unrewarded older
+# trial -- clusters near zero). Bin edges are computed once per mouse (not
+# globally) from that mouse's own Q_diff distribution -- see
+# run_model_series_comparison.py's _qdiff_bin_edges/_add_qdiff_bins.
+MODEL3_QDIFF_N_BINS = 5
+MODEL3_QDIFF_FORMULA = "Z ~ RPE + C(Q_diff_bin) + Port"
+
+# Model 3 forces reward and expectation into one term (RPE = Reward -
+# Q_chosen, a FIXED 1:-1 relationship) rather than letting each have its own
+# free coefficient -- Reward, Q_chosen, and RPE are an exact linear triplet
+# (any one is fully reconstructable from the other two: RPE = Reward -
+# Q_chosen), so at most two of the three can be included together at all
+# (all three -> a singular design matrix / infinite VIF, see this file's
+# EXPANDED_TIME_RESOLVED_GLM_FORMULA comment above). 3b and 3c test whether
+# that RPE constraint was warranted, following the same nested-model logic
+# already used in rpe_analysis_stats.py's analysis_1_rpe_regression
+# (outcome-only -> outcome+Q_chosen -> outcome*Q_chosen):
+#   3b: raw Reward only (drop RPE/Q_chosen entirely) -- simplest, same
+#       parameter count as Model 3.
+#   3c: Reward AND Q_chosen both free (no 1:-1 constraint) -- one more
+#       parameter than 3/3b; if the fitted Reward/Q_chosen coefficients come
+#       out close to equal-and-opposite, that's evidence FOR the RPE framing;
+#       if Reward dominates, that's evidence the signal is mostly raw outcome.
+MODEL3B_FORMULA = "Z ~ Reward + C(Q_diff_bin) + Port"
+MODEL3C_FORMULA = "Z ~ Reward + Q_chosen + C(Q_diff_bin) + Port"
+
+# 3c is still purely additive in Reward/Q_chosen -- it can't let reward's
+# effect depend on how expected it was. RPE_abs (|Reward - Q_chosen|) adds
+# exactly that, and does so WITHOUT reintroducing the Reward/Q_chosen/RPE
+# collinearity: because Reward is binary (0/1), there's an exact identity
+# RPE_abs = Reward + Q_chosen - 2*(Reward*Q_chosen) (verified to floating-
+# point-zero error against real FP2_none data), so alongside the additive
+# Reward + Q_chosen terms already in 3c, RPE_abs is mathematically
+# equivalent to adding the Reward:Q_chosen INTERACTION -- not a new
+# independent "surprise" dimension, but a way to let reward's effect be
+# expectation-dependent rather than fixed. (It WOULD become redundant if the
+# literal Reward:Q_chosen interaction were also added -- don't add both.)
+# Motivated by a strong positive RPE_abs beta in the original
+# EXPANDED_TIME_RESOLVED_GLM_FORMULA, and by 3c's residual gap to word_l2 in
+# exactly the two mice (of four) where an expectation-dependent reward
+# effect could plausibly matter.
+MODEL3D_FORMULA = "Z ~ Reward + Q_chosen + RPE_abs + C(Q_diff_bin) + Port"

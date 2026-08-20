@@ -12,7 +12,7 @@ sns.set_theme(style="ticks", context="talk")
 
 
 def plot_glm_coefficients(peth_time, beta_df, formula_str, align_event=None,
-                           include_intercept=False, n_cols=3):
+                           include_intercept=False, n_cols=3, show_n_trials=False):
     """Small-multiples figure: one subplot per regression term's beta(t)
     trajectory (columns of beta_df from fit_time_resolved_glm), each with a
     shaded 95% CI band (beta +/- 1.96*se), plus a final subplot for the
@@ -21,7 +21,7 @@ def plot_glm_coefficients(peth_time, beta_df, formula_str, align_event=None,
 
     beta_df : output of models.glm_encoding.fit_time_resolved_glm (indexed
         by peth_time, with {term}_beta/{term}_se/... columns plus
-        r_squared/r_squared_adj).
+        r_squared/r_squared_adj/n_trials).
     formula_str : the model formula, shown as the figure's suptitle.
     align_event : optional key into config.params.ALIGN_EVENT_LABELS, used
         only to label the shared x-axis (e.g. "Time from Side Port Entry
@@ -30,6 +30,14 @@ def plot_glm_coefficients(peth_time, beta_df, formula_str, align_event=None,
     include_intercept : include the Intercept term's own subplot (usually
         not scientifically interesting for an encoding model, so off by
         default).
+    show_n_trials : add an extra panel plotting beta_df["n_trials"] vs.
+        peth_time -- flat/uninformative for an untruncated fit, but makes
+        effective sample size visible when some analysis (e.g.
+        pipeline.run_session's truncate_at_side_out) NaNs out a trial's
+        later timepoints, since fit_time_resolved_glm's per-timepoint
+        smf.ols(..., missing="drop") already recomputes n_trials at each
+        t_idx -- without this panel that shrinking N is invisible to a
+        reader of the beta trajectories alone.
     """
     x_label = f"Time from {ALIGN_EVENT_LABELS[align_event]} (s)" if align_event else "Time from event (s)"
 
@@ -37,7 +45,7 @@ def plot_glm_coefficients(peth_time, beta_df, formula_str, align_event=None,
     if not include_intercept:
         terms = [t for t in terms if t != "Intercept"]
 
-    n_panels = len(terms) + 1  # + R^2 panel
+    n_panels = len(terms) + 1 + (1 if show_n_trials else 0)  # + R^2 panel [+ n_trials panel]
     n_cols = max(1, min(n_cols, n_panels))
     n_rows = int(np.ceil(n_panels / n_cols))
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 3.5 * n_rows), sharex=True)
@@ -64,6 +72,15 @@ def plot_glm_coefficients(peth_time, beta_df, formula_str, align_event=None,
     r2_ax.set_ylabel(r"$R^2$")
     r2_ax.legend(frameon=False, fontsize=9)
     sns.despine(ax=r2_ax)
+
+    if show_n_trials:
+        n_ax = axes[len(terms) + 1]
+        n_ax.plot(peth_time, beta_df["n_trials"], color="#8e44ad")
+        n_ax.axvline(0, color="k", ls="--", lw=1)
+        n_ax.set_title("Effective N (trials)", fontsize=11)
+        n_ax.set_xlabel(x_label)
+        n_ax.set_ylabel("n_trials")
+        sns.despine(ax=n_ax)
 
     for ax in axes[n_panels:]:
         ax.axis("off")

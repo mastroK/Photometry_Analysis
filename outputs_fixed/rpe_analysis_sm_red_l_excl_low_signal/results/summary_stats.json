@@ -1,0 +1,24 @@
+{
+  "jrgeco_only": {
+    "analysis1": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.5
+    },
+    "analysis2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.5,
+      "n_positive": 2
+    }
+  },
+  "regular_mice": {
+    "analysis1": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.0625
+    },
+    "analysis2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.0625,
+      "n_positive": 5
+    }
+  }
+}

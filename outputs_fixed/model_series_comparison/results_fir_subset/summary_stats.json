@@ -1,0 +1,20 @@
+{
+  "encoding_glm": {
+    "2b_word_l1_vs_2b_word_l2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 4,
+      "n_mice": 4,
+      "mean_delta_r2": 0.07684465610081123
+    }
+  },
+  "fir_glm": {
+    "2b_word_l1_vs_2b_word_l2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 4,
+      "n_mice": 4,
+      "mean_delta_r2": 0.16076840502680795
+    }
+  }
+}

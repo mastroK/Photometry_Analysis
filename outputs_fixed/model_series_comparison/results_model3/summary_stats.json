@@ -1,0 +1,12 @@
+{
+  "encoding_glm": {
+    "2b_word_l2_vs_3_qdiff_rpe": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 0,
+      "n_mice": 4,
+      "mean_delta_r2": -0.018530870436328773
+    }
+  },
+  "fir_glm": {}
+}

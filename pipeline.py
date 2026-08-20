@@ -21,9 +21,11 @@ from alignment.windowing import (
     compute_per_trial_event_metrics,
     extract_peth,
     get_event_indices,
+    truncate_windows_after_side_out,
 )
 from behavior.sync import align_behavior_to_photometry
 from behavior.trial_table import build_trial_table
+from behavior.switch_dynamics import add_model_belief, add_switch_dynamics, add_value_decomposition_features
 from behavior.word_encoding import add_lag_features, add_word_labels, evaluate_word_outcomes
 from config.params import (
     ALIGN_EVENT_COLUMNS,
@@ -55,8 +57,67 @@ from viz.traces import plot_session_overview
 DEFAULT_FIGURE_DIR = Path(__file__).parent / "figures"
 
 
+def extract_event_peth(trial_table, dff, align_event, pre_samples, post_samples, peth_time,
+                        truncate_at_side_out=False, side_out_margin_s=0.0):
+    """Filter trial_table to the trials with a valid `align_event` photometry
+    index, then build that event's PETH windows (dff + baseline-normalized
+    z-score) -- run_session's own step 6, factored out here so a caller that
+    already has a session's full (pre-align_event-filter) trial_table/dff
+    (e.g. run_session itself, or a caller building PETH for more than one
+    align_event from the same session -- see run_model_series_comparison.py)
+    can reuse it directly instead of re-running the expensive upstream
+    stages (raw load, demod, dff/zscore, trial table enrichment, alignment,
+    bandit-state fit) once per align_event.
+
+    pre_samples/post_samples/peth_time : same PETH_PRE_SEC/PETH_POST_SEC/
+        FINAL_SAMPLE_FREQ_HZ-derived values used elsewhere in run_session
+        (compute_per_trial_event_metrics needs them too) -- passed in rather
+        than recomputed here so every event's PETH shares the exact same
+        window/grid.
+
+    truncate_at_side_out : opt-in, default False -- every existing caller is
+        unaffected unless it explicitly passes True. When True, NaNs out each
+        trial's own post-side_out samples (see
+        alignment.windowing.truncate_windows_after_side_out) so a fixed
+        +5.4s-style window doesn't silently mix in post-departure/return-to-
+        center activity as if it were still in-port response. Only valid for
+        align_event="side_in" (dwell time relative to any other alignment is
+        undefined) -- raises ValueError otherwise.
+
+    Returns (filtered_trial_table, peth_trial_table, all_dff_windows,
+    all_zscore_windows, z_stats).
+    """
+    if truncate_at_side_out and align_event != "side_in":
+        raise ValueError(
+            f"truncate_at_side_out=True requires align_event='side_in' (got {align_event!r}) -- "
+            "dwell time (side_out - align_event) is only meaningful relative to side_in"
+        )
+
+    align_col = ALIGN_EVENT_COLUMNS[align_event]
+    trial_table = trial_table[trial_table[align_col] >= 0].reset_index(drop=True)
+
+    event_idx = get_event_indices(trial_table, align_event)
+    has_peth_window = (event_idx - pre_samples >= 0) & (event_idx + post_samples < len(dff))
+    peth_trial_table = trial_table[has_peth_window].reset_index(drop=True)
+
+    all_dff_windows = extract_peth(dff, event_idx[has_peth_window], pre_samples, post_samples)
+    all_zscore_windows, z_stats = compute_event_aligned_zscore(
+        all_dff_windows, peth_time, PETH_BASELINE_PRE_EVENT_S, PETH_BASELINE_POST_EVENT_S,
+        return_baseline_stats=True,
+    )
+
+    if truncate_at_side_out:
+        all_dff_windows = truncate_windows_after_side_out(
+            all_dff_windows, peth_time, peth_trial_table, margin_s=side_out_margin_s)
+        all_zscore_windows = truncate_windows_after_side_out(
+            all_zscore_windows, peth_time, peth_trial_table, margin_s=side_out_margin_s)
+
+    return trial_table, peth_trial_table, all_dff_windows, all_zscore_windows, z_stats
+
+
 def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, output_dir=None,
-                 compute_bandit_state=True, align_event=DEFAULT_ALIGN_EVENT, force_nominal_carrier_freq=False):
+                 compute_bandit_state=True, align_event=DEFAULT_ALIGN_EVENT, force_nominal_carrier_freq=False,
+                 return_dff_intermediates=False, truncate_at_side_out=False, side_out_margin_s=0.0):
     """force_nominal_carrier_freq : skip estimate_carrier_freq's own free-ranging
     FFT peak search (over the WHOLE raw spectrum) and instead demodulate directly
     at channels.nominal_carrier_freq_hz. Added for the SM cohort's cross-talk
@@ -68,6 +129,9 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     demodulate_envelope still does its own narrow-band refinement around
     whatever frequency it's given, so this simply anchors that refinement at the
     channel's real intended frequency instead of an unconstrained global guess.
+
+    truncate_at_side_out : opt-in, default False -- see extract_event_peth's
+    docstring. Only meaningful for align_event="side_in".
     """
     if align_event not in ALIGN_EVENT_COLUMNS:
         raise ValueError(f"Unknown align_event {align_event!r}; must be one of {list(ALIGN_EVENT_COLUMNS)}")
@@ -93,7 +157,11 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     print(f"Demodulated envelope: {len(envelope)} samples at {FINAL_SAMPLE_FREQ_HZ:.4f} Hz "
           f"({len(envelope) / FINAL_SAMPLE_FREQ_HZ:.1f} s), locked to {locked_freq:.2f} Hz")
 
-    dff, zscore, baseline = compute_dff_and_zscore(raw[channels.signal_channel], measured_freq, envelope)
+    if return_dff_intermediates:
+        dff, zscore, baseline, dff_intermediates = compute_dff_and_zscore(
+            raw[channels.signal_channel], measured_freq, envelope, return_intermediates=True)
+    else:
+        dff, zscore, baseline = compute_dff_and_zscore(raw[channels.signal_channel], measured_freq, envelope)
     time_axis = np.arange(len(envelope)) * FINAL_TIME_STEP_SEC
 
     # --- 4. behavior raw -> trial table -------------------------------------------
@@ -104,6 +172,10 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     trial_table = add_lag_features(trial_table, n_lags=LAG_N)
     if compute_bandit_state:
         trial_table = add_bandit_state_features(trial_table, session_id=f"{mouse}_{date}")
+        bandit_fit_params = trial_table.attrs.get("bandit_fit_params")  # capture before any further .copy()
+        trial_table = add_value_decomposition_features(trial_table)
+        trial_table = add_model_belief(trial_table, bandit_fit_params)
+    trial_table = add_switch_dynamics(trial_table)
     print(f"Parsed {len(trial_table)} trials "
           f"({trial_table['was_rewarded'].sum()} rewarded, "
           f"leftProb={trial_table['left_reward_prob'].iloc[0]}, "
@@ -132,23 +204,19 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
         trial_table[f"peak_z_{evt}"] = peak
         trial_table[f"auc_{evt}"] = auc
 
-    # keep only trials whose aligning event index falls inside the recorded envelope
-    align_col = ALIGN_EVENT_COLUMNS[align_event]
-    trial_table = trial_table[trial_table[align_col] >= 0].reset_index(drop=True)
-
     # --- 6. PETH aligned to the chosen trial event, split by reward --------------
     # Extract ONE set of per-trial windows (rather than separately per reward
     # group) so every trial's window stays row-aligned with its trial_table
     # entry -- needed to later group PETH windows by arbitrary word/sequence
     # labels, not just the reward split used for the overview figure.
-    event_idx = get_event_indices(trial_table, align_event)
-    has_peth_window = (event_idx - pre_samples >= 0) & (event_idx + post_samples < len(dff))
-    peth_trial_table = trial_table[has_peth_window].reset_index(drop=True)
-
-    all_dff_windows = extract_peth(dff, event_idx[has_peth_window], pre_samples, post_samples)
-    all_zscore_windows, z_stats = compute_event_aligned_zscore(
-        all_dff_windows, peth_time, PETH_BASELINE_PRE_EVENT_S, PETH_BASELINE_POST_EVENT_S,
-        return_baseline_stats=True,
+    # full_trial_table (pre-align_event-filter) is kept and returned below so
+    # a caller needing more than one align_event's PETH from this same
+    # session can call extract_event_peth again directly instead of
+    # re-running everything above this point.
+    full_trial_table = trial_table
+    trial_table, peth_trial_table, all_dff_windows, all_zscore_windows, z_stats = extract_event_peth(
+        full_trial_table, dff, align_event, pre_samples, post_samples, peth_time,
+        truncate_at_side_out=truncate_at_side_out, side_out_margin_s=side_out_margin_s,
     )
 
     is_rewarded = peth_trial_table["was_rewarded"].to_numpy()
@@ -198,8 +266,9 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     fig.savefig(figure_path_svg)
     print(f"Saved figure to {figure_path_png} and {figure_path_svg}")
 
-    return dict(
+    result = dict(
         trial_table=trial_table,
+        full_trial_table=full_trial_table,
         envelope=envelope,
         dff=dff,
         zscore=zscore,
@@ -217,6 +286,9 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
         rewarded_zscore_windows=rewarded_z,
         unrewarded_zscore_windows=unrewarded_z,
     )
+    if return_dff_intermediates:
+        result["dff_intermediates"] = dff_intermediates
+    return result
 
 
 def main():

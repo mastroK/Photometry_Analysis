@@ -1,0 +1,8 @@
+mouse,n_trials,n_hemispheres,hemispheres,interaction_coef,interaction_p,note
+SM1B,9443,1,jrgeco_only,,,only one hemisphere valid for this mouse -- interaction not fittable
+SM1L,10835,1,regular_mice,,,only one hemisphere valid for this mouse -- interaction not fittable
+SM1N,7789,1,regular_mice,,,only one hemisphere valid for this mouse -- interaction not fittable
+SM2B,8177,1,jrgeco_only,,,only one hemisphere valid for this mouse -- interaction not fittable
+SM2N,10247,1,regular_mice,,,only one hemisphere valid for this mouse -- interaction not fittable
+SM2R,9668,1,regular_mice,,,only one hemisphere valid for this mouse -- interaction not fittable
+SM3FR,752,1,regular_mice,,,only one hemisphere valid for this mouse -- interaction not fittable

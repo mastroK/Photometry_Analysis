@@ -3,8 +3,15 @@ __pycache__/
 .DS_Store
 *_BACKUP_contaminated*
 
-# Large intermediate FIR design-matrix caches (400MB-2.9GB each) --
-# regeneratable from raw session data via rpe_analysis_prep.py, not
-# suited to git. Everything else under these dirs (peth windows, pooled
-# trial tables, fitted-model pickles, results/ CSVs) is kept.
-outputs_fixed/rpe_analysis*/fir_pooled.npz
+# Large regeneratable binary data caches -- pooled z-score windows, FIR
+# design matrices, trial tables (tens to hundreds of MB each, sometimes
+# multi-GB; outputs_fixed/ alone is ~39GB on disk). These are reproducible
+# from raw session data via each analysis's own prep script + a recorded
+# manifest.json (git commit + parameters), so git tracks the small,
+# diffable summary of a run (CSVs, JSON, small pickles) rather than the
+# regeneratable data itself. Figures are equally regeneratable from that
+# same tracked code + data and are excluded for the same reason.
+*.npz
+*.parquet
+*.png
+*.svg

@@ -1,0 +1,24 @@
+{
+  "green_l": {
+    "analysis1": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.0078125
+    },
+    "analysis2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.0078125,
+      "n_positive": 8
+    }
+  },
+  "green_r": {
+    "analysis1": {
+      "wilcoxon_stat": 15.0,
+      "wilcoxon_p": 0.7421875
+    },
+    "analysis2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.0078125,
+      "n_positive": 8
+    }
+  }
+}

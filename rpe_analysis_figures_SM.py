@@ -1,17 +1,25 @@
 """
-Figures for the SM (PV-dualphotometry) cohort's within-animal RPE analyses --
-reuses the four cohort-agnostic strip-plot figures from rpe_analysis_figures.py
-unchanged, plus one new figure specific to this cohort's bilateral-hemisphere
-design: a per-mouse green_r-vs-green_l beta_RPE comparison, sourced from
-rpe_analysis_stats_SM.py's hemisphere_breakdown.csv / analysis1b_hemisphere_
-interaction.csv (see that module's docstring for why this is a supplementary,
-non-gating check rather than a change to the pooled per-mouse statistic).
+Figures for the SM (PV-dualphotometry) cohort's within-animal RPE analyses.
+Per explicit user direction, green_r and green_l are never pooled -- rpe_
+analysis_stats_SM.py now saves each of the four analyses TWICE, once per
+hemisphere, as *_{hemisphere}.csv. This module calls the four cohort-agnostic
+strip-plot figure functions from rpe_analysis_figures.py (unchanged, shared
+with FP1/FP2) ONCE PER HEMISPHERE via a small adapter (_hemisphere_view)
+that stages that hemisphere's suffixed CSVs under the plain filenames those
+shared functions expect, in a hemisphere-specific subdirectory -- so the
+shared code itself needs no hemisphere-awareness and stays untouched. Each
+hemisphere's 4 figures land in fig_dir/{hemisphere}/. Also produces one
+direct green_r-vs-green_l beta_RPE comparison figure, sourced from the two
+per-hemisphere analysis1 CSVs plus analysis1b_hemisphere_interaction.csv
+(see rpe_analysis_stats_SM.py's docstring: informational, not a pooling
+gate -- hemispheres are already fully separate above regardless).
 
 Usage:
     python rpe_analysis_figures_SM.py [results_dir] [fig_dir] [--pooled-encoding-r2 X] [--pooled-fir-r2 X]
 """
 
 import json
+import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -29,13 +37,35 @@ from rpe_analysis_figures import (
 
 sns.set_theme(style="ticks", context="talk")
 
+PER_HEMISPHERE_FILES = (
+    "analysis1_rpe_regression", "analysis2_signed_vs_unsigned",
+    "analysis3a_encoding_glm_per_mouse", "analysis3b_fir_glm_per_mouse",
+    "analysis4_temporal_specificity",
+)
 
-def fig_hemisphere_breakdown(results_dir, fig_dir, mouse_colors):
-    breakdown = pd.read_csv(results_dir / "hemisphere_breakdown.csv")
+
+def _hemisphere_view(results_dir, hemisphere):
+    """Stage a hemisphere's *_{hemisphere}.csv files under the plain
+    filenames rpe_analysis_figures.py's shared fig_* functions expect, in a
+    dedicated subdirectory -- avoids touching that shared, FP1/FP2-used
+    module at all.
+    """
+    view_dir = results_dir / f"_view_{hemisphere}"
+    view_dir.mkdir(exist_ok=True)
+    for stem in PER_HEMISPHERE_FILES:
+        src = results_dir / f"{stem}_{hemisphere}.csv"
+        if src.exists():
+            shutil.copyfile(src, view_dir / f"{stem}.csv")
+    return view_dir
+
+
+def fig_hemisphere_comparison(results_dir, fig_dir, mouse_colors):
+    r_df = pd.read_csv(results_dir / "analysis1_rpe_regression_green_r.csv", index_col=0)
+    l_df = pd.read_csv(results_dir / "analysis1_rpe_regression_green_l.csv", index_col=0)
     interaction = pd.read_csv(results_dir / "analysis1b_hemisphere_interaction.csv", index_col=0)
 
-    pivot = breakdown.pivot(index="mouse", columns="hemisphere", values="beta_rpe")
-    mice = list(pivot.index)
+    pivot = pd.DataFrame({"green_r": r_df["beta_rpe"], "green_l": l_df["beta_rpe"]})
+    mice = sorted(set(pivot.index))
 
     fig, ax = plt.subplots(figsize=(7.5, 5.5))
     for mouse in mice:
@@ -67,16 +97,17 @@ def fig_hemisphere_breakdown(results_dir, fig_dir, mouse_colors):
 
     n_fittable = int(interaction["interaction_p"].notna().sum())
     n_sig = int((interaction["interaction_p"] < 0.05).sum())
-    n_both = int((breakdown.groupby("mouse")["hemisphere"].nunique() == 2).sum())
+    n_both = int(pivot[["green_r", "green_l"]].notna().all(axis=1).sum())
     ax.text(
         0.02, 0.02,
         f"{n_both}/{len(mice)} mice have both hemispheres valid\n"
-        f"{n_sig}/{n_fittable} show a significant RPE x hemisphere interaction (p<0.05)",
+        f"{n_sig}/{n_fittable} show a significant RPE x hemisphere interaction (p<0.05)\n"
+        "(hemispheres reported fully separately above -- this is a direct comparison, not a pooled result)",
         transform=ax.transAxes, fontsize=9.5, va="bottom", ha="left", color="0.3",
     )
     fig.tight_layout()
-    fig.savefig(fig_dir / "rpe_hemisphere_breakdown.png", dpi=150)
-    fig.savefig(fig_dir / "rpe_hemisphere_breakdown.svg")
+    fig.savefig(fig_dir / "rpe_hemisphere_comparison.png", dpi=150)
+    fig.savefig(fig_dir / "rpe_hemisphere_comparison.svg")
     plt.close(fig)
 
 
@@ -85,18 +116,30 @@ def make_all_figures(results_dir, fig_dir, pooled_encoding_r2=None, pooled_fir_r
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     with open(results_dir / "summary_stats.json") as f:
-        summary_stats = json.load(f)
+        summary_stats_by_hemisphere = json.load(f)
 
-    r1 = pd.read_csv(results_dir / "analysis1_rpe_regression.csv", index_col=0)
-    mice = list(r1.index)
-    mouse_colors = _mouse_colors(mice)
+    # All mice across both hemispheres share one consistent color mapping,
+    # so a mouse plotted in the green_r figures is the same color in green_l.
+    all_mice = sorted({
+        mouse
+        for hemisphere in summary_stats_by_hemisphere
+        for mouse in pd.read_csv(results_dir / f"analysis1_rpe_regression_{hemisphere}.csv", index_col=0).index
+    })
+    mouse_colors = _mouse_colors(all_mice)
 
-    fig_rpe_regression(results_dir, fig_dir, mouse_colors, summary_stats)
-    fig_signed_vs_unsigned(results_dir, fig_dir, mouse_colors, summary_stats)
-    fig_temporal_specificity(results_dir, fig_dir, mouse_colors)
-    fig_between_animal_r2(results_dir, fig_dir, mouse_colors, pooled_encoding_r2, pooled_fir_r2)
-    fig_hemisphere_breakdown(results_dir, fig_dir, mouse_colors)
-    print(f"Saved 5 figures to {fig_dir}")
+    for hemisphere, summary_stats in summary_stats_by_hemisphere.items():
+        view_dir = _hemisphere_view(results_dir, hemisphere)
+        hemi_fig_dir = fig_dir / hemisphere
+        hemi_fig_dir.mkdir(parents=True, exist_ok=True)
+
+        fig_rpe_regression(view_dir, hemi_fig_dir, mouse_colors, summary_stats)
+        fig_signed_vs_unsigned(view_dir, hemi_fig_dir, mouse_colors, summary_stats)
+        fig_temporal_specificity(view_dir, hemi_fig_dir, mouse_colors)
+        fig_between_animal_r2(view_dir, hemi_fig_dir, mouse_colors, pooled_encoding_r2, pooled_fir_r2)
+        print(f"Saved 4 figures to {hemi_fig_dir}")
+
+    fig_hemisphere_comparison(results_dir, fig_dir, mouse_colors)
+    print(f"Saved rpe_hemisphere_comparison to {fig_dir}")
 
 
 if __name__ == "__main__":

@@ -4,21 +4,19 @@ pooled dataset built by rpe_analysis_prep_SM.py. Same four analyses as
 rpe_analysis_stats.py (FP1/FP2/WCL), same one-point-per-mouse Wilcoxon
 convention -- every claim shown at the animal level, not pooled across mice.
 
-SM-specific addition: this cohort's mice can contribute BOTH green_r and
+SM-specific handling: this cohort's mice can contribute BOTH green_r and
 green_l hemisphere extractions per session (a true dual-fiber rig, unlike
-FP1/FP2's single active channel per mouse). Per-mouse models here pool every
-valid (session, hemisphere) row into that mouse's own regression/refit,
-exactly like multiple sessions already pool -- hemisphere is uncorrelated
-with RPE_signed (a behavioral, not photometric, construct), so this cannot
-bias beta_rpe; at worst it adds conservative residual variance. This is a
-SUPPLEMENT, not a replacement, for that convention:
-  - analysis_1b_hemisphere_interaction: per-mouse post_amp ~ RPE_signed *
-    C(hemisphere), reporting the interaction p-value, to confirm the RPE
-    effect isn't being driven by or masked by one hemisphere. Mice with only
-    one valid hemisphere can't fit this (report NaN, noted explicitly).
-  - hemisphere_breakdown: descriptive per-mouse, per-hemisphere n_sessions/
-    n_trials/beta_rpe table, pure transparency -- doesn't touch the n=n_mice
-    test itself.
+FP1/FP2's single active channel per mouse). Per explicit user direction,
+green_r and green_l are NEVER collapsed/pooled together in any analysis here
+-- every one of the four analyses is run TWICE, once per hemisphere, on that
+hemisphere's own trial subset, producing fully separate result tables (not a
+single pooled result plus a supplementary interaction check). This mirrors
+run_sm_glm_fir_analysis.py's identical per-hemisphere-separate treatment of
+the time-resolved GLM and FIR kernels.
+  - analysis_1b_hemisphere_interaction: kept as an additional, informational
+    cross-check (does the RPE effect's magnitude/sign differ significantly
+    between the two SEPARATELY-reported hemispheres?), not as a gate on
+    whether hemispheres get pooled -- they don't, regardless of this result.
 
 Usage:
     python rpe_analysis_stats_SM.py
@@ -49,9 +47,10 @@ OUT_DIR = Path("outputs_fixed/rpe_analysis_sm/results")
 
 def analysis_1b_hemisphere_interaction(tt):
     """Per-mouse post_amp ~ RPE_signed * C(hemisphere): does the RPE effect
-    depend on which hemisphere it's measured in? Non-gating -- reported
-    alongside Analysis 1's pooled-hemisphere per-mouse betas, not instead of
-    them.
+    depend on which hemisphere it's measured in? Purely informational --
+    hemispheres are reported fully separately regardless of this result (see
+    module docstring); this only flags whether the two separate results
+    should be expected to look similar or different for a given mouse.
     """
     rows = []
     for mouse, g in tt.groupby("mouse"):
@@ -85,28 +84,37 @@ def analysis_1b_hemisphere_interaction(tt):
     return per_mouse
 
 
-def hemisphere_breakdown(tt):
-    """Descriptive per-mouse, per-hemisphere table: how many (session,
-    hemisphere) sub-observations fed each mouse's collapsed Analysis-1 point,
-    and what beta_RPE looks like within just that hemisphere. Pure
-    transparency -- does not feed into or change any Wilcoxon test.
+def run_hemisphere(tt_all, zscore_windows, peth_time, fir, fir_meta, hemisphere, out_dir):
+    """Run all four analyses restricted to ONE hemisphere's trials -- the
+    complete, independent result set for that hemisphere, not a subset
+    view of a pooled fit. tt_all must already have _orig_pos (add_derived_
+    columns) computed against the FULL (unfiltered) zscore_windows -- that
+    column is preserved correctly under boolean filtering, so zscore_windows
+    itself is passed through unfiltered and analysis_3_per_mouse_encoding_glm
+    re-indexes via _orig_pos, not position.
     """
-    rows = []
-    for (mouse, hemisphere), g in tt.groupby(["mouse", "hemisphere"]):
-        n_sessions = g["date"].nunique()
-        if len(g) >= 5:
-            m = smf.ols("post_amp ~ RPE_signed", data=g).fit()
-            beta_rpe, p_rpe = m.params["RPE_signed"], m.pvalues["RPE_signed"]
-        else:
-            beta_rpe, p_rpe = np.nan, np.nan
-        rows.append(dict(
-            mouse=mouse, hemisphere=hemisphere, n_sessions=n_sessions, n_trials=len(g),
-            beta_rpe=beta_rpe, p_rpe=p_rpe,
-        ))
-    breakdown = pd.DataFrame(rows).set_index(["mouse", "hemisphere"])
-    print("\n=== Per-mouse, per-hemisphere breakdown (descriptive only) ===")
-    print(breakdown.to_string())
-    return breakdown
+    print(f"\n{'=' * 70}\n{hemisphere}\n{'=' * 70}")
+    tt = tt_all[tt_all["hemisphere"] == hemisphere].reset_index(drop=True)
+    print(f"{len(tt)} trials, {tt['mouse'].nunique()} mice")
+
+    fir_mask = fir["hemisphere"] == hemisphere
+    fir_h = {k: fir[k][fir_mask] for k in fir.files}
+
+    r1, r1_stats = analysis_1_rpe_regression(tt)
+    r2, r2_stats = analysis_2_signed_vs_unsigned(tt)
+    r3a = analysis_3_per_mouse_encoding_glm(tt, zscore_windows, peth_time)
+    r3b = analysis_3_per_mouse_fir_glm(fir_h, fir_meta)
+    tt = add_pre_event_amplitude(tt, zscore_windows, peth_time)
+    r4 = analysis_4_temporal_specificity(tt, r1)
+
+    suffix = f"_{hemisphere}"
+    r1.to_csv(out_dir / f"analysis1_rpe_regression{suffix}.csv")
+    r2.to_csv(out_dir / f"analysis2_signed_vs_unsigned{suffix}.csv")
+    r3a.to_csv(out_dir / f"analysis3a_encoding_glm_per_mouse{suffix}.csv")
+    r3b.to_csv(out_dir / f"analysis3b_fir_glm_per_mouse{suffix}.csv")
+    r4.to_csv(out_dir / f"analysis4_temporal_specificity{suffix}.csv")
+
+    return dict(analysis1=r1_stats, analysis2=r2_stats)
 
 
 def main(data_dir=DATA_DIR, out_dir=OUT_DIR):
@@ -114,33 +122,27 @@ def main(data_dir=DATA_DIR, out_dir=OUT_DIR):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     trial_table, zscore_windows, peth_time, fir, fir_meta = load_pooled_data(data_dir)
-    tt = add_derived_columns(trial_table, zscore_windows, peth_time)
+    tt_all = add_derived_columns(trial_table, zscore_windows, peth_time)
 
-    print(f"Pooled dataset: {len(tt)} trials, {tt['mouse'].nunique()} mice")
-    print(tt.groupby(["mouse", "hemisphere"]).size())
+    print(f"Pooled dataset: {len(tt_all)} trials, {tt_all['mouse'].nunique()} mice")
+    print(tt_all.groupby(["mouse", "hemisphere"]).size())
 
-    r1, r1_stats = analysis_1_rpe_regression(tt)
-    r1b = analysis_1b_hemisphere_interaction(tt)
-    breakdown = hemisphere_breakdown(tt)
-    r2, r2_stats = analysis_2_signed_vs_unsigned(tt)
-    r3a = analysis_3_per_mouse_encoding_glm(tt, zscore_windows, peth_time)
-    r3b = analysis_3_per_mouse_fir_glm(fir, fir_meta)
-    tt = add_pre_event_amplitude(tt, zscore_windows, peth_time)
-    r4 = analysis_4_temporal_specificity(tt, r1)
-
-    r1.to_csv(out_dir / "analysis1_rpe_regression.csv")
+    # Informational only -- see analysis_1b_hemisphere_interaction's
+    # docstring; does not gate or change the per-hemisphere results below.
+    r1b = analysis_1b_hemisphere_interaction(tt_all)
     r1b.to_csv(out_dir / "analysis1b_hemisphere_interaction.csv")
-    breakdown.to_csv(out_dir / "hemisphere_breakdown.csv")
-    r2.to_csv(out_dir / "analysis2_signed_vs_unsigned.csv")
-    r3a.to_csv(out_dir / "analysis3a_encoding_glm_per_mouse.csv")
-    r3b.to_csv(out_dir / "analysis3b_fir_glm_per_mouse.csv")
-    r4.to_csv(out_dir / "analysis4_temporal_specificity.csv")
+
+    summary_stats = {}
+    for hemisphere in sorted(tt_all["hemisphere"].unique()):
+        summary_stats[hemisphere] = run_hemisphere(
+            tt_all, zscore_windows, peth_time, fir, fir_meta, hemisphere, out_dir
+        )
 
     import json
     with open(out_dir / "summary_stats.json", "w") as f:
-        json.dump(dict(analysis1=r1_stats, analysis2=r2_stats), f, indent=2)
+        json.dump(summary_stats, f, indent=2)
 
-    print(f"\nSaved all results to {out_dir}")
+    print(f"\nSaved all results to {out_dir} (separately per hemisphere)")
 
 
 if __name__ == "__main__":

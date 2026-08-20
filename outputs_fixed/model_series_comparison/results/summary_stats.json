@@ -1,0 +1,40 @@
+{
+  "encoding_glm": {
+    "1_main_effects_vs_2_2bit_seq": {
+      "wilcoxon_stat": 4.0,
+      "wilcoxon_p": 0.875,
+      "n_positive": 3,
+      "n_mice": 4,
+      "mean_delta_r2": -0.005914138741304396
+    },
+    "2_2bit_seq_vs_2_3bit_seq": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 4,
+      "n_mice": 4,
+      "mean_delta_r2": 0.013508782398633904
+    },
+    "2_3bit_seq_vs_2b_word_l1": {
+      "wilcoxon_stat": 4.0,
+      "wilcoxon_p": 0.875,
+      "n_positive": 1,
+      "n_mice": 4,
+      "mean_delta_r2": -0.007594643657329352
+    },
+    "2b_word_l1_vs_2b_word_l2": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 4,
+      "n_mice": 4,
+      "mean_delta_r2": 0.07684465610081123
+    },
+    "2b_word_l2_vs_2b_word_l3": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.25,
+      "n_positive": 3,
+      "n_mice": 3,
+      "mean_delta_r2": 0.0431487463953254
+    }
+  },
+  "fir_glm": {}
+}

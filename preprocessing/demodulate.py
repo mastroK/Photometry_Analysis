@@ -94,7 +94,7 @@ def demodulate_envelope(
 
 
 def compute_dff_and_zscore(raw_channel, carrier_freq, envelope, window_samples=BASELINE_WINDOW_SAMPLES,
-                            raw_window_samples=RAW_BASELINE_WINDOW_SAMPLES):
+                            raw_window_samples=RAW_BASELINE_WINDOW_SAMPLES, return_intermediates=False):
     """MATLAB's real double-pass baseline/z-score scheme
     (processNew_fast_kevin.m:447-541, rollingZ.m) -- confirmed the reference
     implementation for this cohort (see config.params module docstring/
@@ -141,4 +141,16 @@ def compute_dff_and_zscore(raw_channel, carrier_freq, envelope, window_samples=B
     env_mean = env_s.rolling(window_samples, center=True, min_periods=1).mean()
     dff = ((env_s - env_mean) / env_mean).to_numpy()
 
+    if return_intermediates:
+        # final_mean/final_std: the rolling baseline actually subtracted/divided
+        # out to produce `zscore` (the value every downstream GLM/FIR/RPE fit
+        # consumes) -- exposed for diagnosing whether that baseline itself
+        # covaries with recent reward history (see baseline_reward_rate_diagnostic.py).
+        return dff, zscore, env_mean.to_numpy(), dict(
+            final_mean=final_mean.to_numpy(), final_std=final_std.to_numpy(),
+            # pre-rolling-baseline demodulated trace -- lets a caller recompute
+            # final_mean/zscore at OTHER window sizes without redoing the raw
+            # load/demod (see baseline_window_reward_rate_diagnostic.py).
+            demodulated=demodulated,
+        )
     return dff, zscore, env_mean.to_numpy()

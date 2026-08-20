@@ -21,7 +21,8 @@ from pipeline import run_session
 
 def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
                               hemisphere=DEFAULT_HEMISPHERE, max_segments=None,
-                              hemisphere_for_session=None):
+                              hemisphere_for_session=None, truncate_at_side_out=False,
+                              side_out_margin_s=0.0):
     """Run every session_dir through run_session(align_event=...) and stack
     each session's all_zscore_windows / peth_trial_table into one pooled
     (windows, trial_table) pair, tagged with mouse/date.
@@ -43,6 +44,10 @@ def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
         hemisphere across a session list spanning the mid-cohort channel
         cutover would silently demodulate the wrong channel for half of it.
 
+    truncate_at_side_out/side_out_margin_s : forwarded to run_session/
+        pipeline.extract_event_peth, opt-in and default False -- see that
+        function's docstring. Only meaningful for align_event="side_in".
+
     Returns (peth_time, zscore_windows, pooled_trial_table):
       peth_time : (n_samples,) seconds-from-event offsets, shared across the
           whole pool.
@@ -61,7 +66,8 @@ def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
         session_hemisphere = hemisphere_for_session(session_dir) if hemisphere_for_session is not None else hemisphere
         try:
             result = run_session(session_dir, hemisphere=session_hemisphere, max_segments=max_segments,
-                                  align_event=align_event)
+                                  align_event=align_event, truncate_at_side_out=truncate_at_side_out,
+                                  side_out_margin_s=side_out_margin_s)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
             n_failed += 1

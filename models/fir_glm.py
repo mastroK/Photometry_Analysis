@@ -12,11 +12,15 @@ kernels for temporally-overlapping trials (e.g. quick win-stay sequences)
 are deconvolved rather than confounded, and the fitted coefficients
 beta_f(tau) trace out that group's own temporal kernel.
 
-By design this model does NOT include center_in/center_out/side_out as
-nuisance regressors -- per lab decision, the analysis question here is the
-side_in response itself (across reward type/history), not separating it
-from its neighboring events, so the design matrix stays restricted to
-side_in-anchored regressors only.
+By design the DEFAULT config of this model does NOT include center_in/
+center_out/side_out as nuisance regressors -- per lab decision, the
+analysis question here is the side_in response itself (across reward
+type/history), not separating it from its neighboring events, so the
+design matrix stays restricted to side_in-anchored regressors only unless
+a caller explicitly opts in to a second event (build_event_impulses'
+event_col/event_name, build_multi_event_mask_and_groups) -- used by the
+simplified model-series comparison (run_model_series_comparison.py) for
+its side_in+side_out combined models.
 """
 
 from pathlib import Path
@@ -37,25 +41,39 @@ DEFAULT_TEST_SIZE = 0.2
 DEFAULT_GROUP_COLUMN = "reward_seq_3"
 
 
-def build_event_impulses(trial_table, n_samples, group_col=DEFAULT_GROUP_COLUMN, group_values=None):
+def build_event_impulses(trial_table, n_samples, group_col=DEFAULT_GROUP_COLUMN, group_values=None,
+                          parametric_specs=None, event_col="photometry_side_in_index",
+                          event_name="side_in", include_baseline=False):
     """Build {feature_name: (n_samples,) impulse vector} -- 0 everywhere
-    except a single non-zero sample at each valid trial's side_in index.
+    except a single non-zero sample at each valid trial's event index
+    (trial_table[event_col], "side_in"/"side_out" by default/name).
+
+    Baseline (impulse height 1.0 for every valid trial, ungrouped): an
+    "{event_name}" channel, included only if include_baseline=True -- the
+    explicit "this event causes some response" term used by the simplified
+    model-series comparison (run_model_series_comparison.py)'s Model 1/1b.
 
     Discrete reward-history groups (impulse height 1.0): one
-    "side_in_<value>" channel per unique non-null value of
+    "{event_name}_<value>" channel per unique non-null value of
     trial_table[group_col] -- e.g. group_col="reward_seq_3" (behavior.
     word_encoding.add_lag_features' "111"/"110"/.../"000" 3-trial-back
     win/loss patterns) gives up to 8 discrete kernels; group_col=
     "word_l3_generic" gives the AAA/aAA/aaA-style stay/switch+reward
     patterns instead. Any trial_table column works (was_rewarded,
-    Behavioral_State, choice_seq_3, ...).
+    Behavioral_State, choice_seq_3, word_l1/l2/l3, reward_seq_2/3, ...).
+    Pass group_col=None to skip grouped channels entirely (e.g. for a
+    main-effects-only model with no categorical split).
 
     Parametric features (impulse height = the trial's own continuous
-    covariate, placed at side_in onset regardless of group):
+    covariate, placed at the event's onset regardless of group):
+    defaults (parametric_specs=None) to this model's original two channels,
       side_in_x_Qdiff  -- |Q_diff| (external.bandit_state_adapter)
       side_in_x_Choice -- chose_left (Left=1, Right=0)
+    Pass parametric_specs=[(name, values_series), ...] to build different/
+    additional channels ("{event_name}_x_{name}"), e.g. Reward/Port/their
+    product for Model 1; pass parametric_specs=[] to build none.
 
-    A trial contributes to a feature only where its side_in index is valid
+    A trial contributes to a feature only where its event index is valid
     (>=0, i.e. resolved by behavior.sync.align_behavior_to_photometry) and,
     for parametric features, the covariate itself is finite (NaN during
     e.g. a skipped Q-learning fit).
@@ -63,15 +81,21 @@ def build_event_impulses(trial_table, n_samples, group_col=DEFAULT_GROUP_COLUMN,
     group_values : explicit ordered list of group_col values to build a
         channel for -- pass this (rather than leaving it to be inferred from
         this trial_table alone) when pooling multiple sessions, so every
-        session's design matrix has the same "side_in_<group>" columns in
-        the same order even if a given session happens not to contain every
-        pattern (see build_pooled_fir_dataset). Defaults to this
+        session's design matrix has the same "{event_name}_<group>" columns
+        in the same order even if a given session happens not to contain
+        every pattern (see build_pooled_fir_dataset). Defaults to this
         trial_table's own sorted unique non-null values.
+
+    event_col/event_name : which photometry-index column anchors this
+        event's impulses, and the name prefix used for its channels --
+        default to side_in for full backward compatibility. Pass
+        event_col="photometry_side_out_index", event_name="side_out" to
+        anchor on side_out instead; call this function twice (once per
+        event) and merge the two returned dicts to build a combined
+        multi-event design (see build_multi_event_mask_and_groups for the
+        matching task mask).
     """
-    side_in_idx = trial_table["photometry_side_in_index"].to_numpy()
-    group_col_values = trial_table[group_col]
-    if group_values is None:
-        group_values = sorted(group_col_values.dropna().unique())
+    event_idx = trial_table[event_col].to_numpy()
 
     def _place(idx, values=None, extra_valid=None):
         vec = np.zeros(n_samples)
@@ -86,12 +110,25 @@ def build_event_impulses(trial_table, n_samples, group_col=DEFAULT_GROUP_COLUMN,
         return vec
 
     impulses = {}
-    for group in group_values:
-        extra_valid = (group_col_values == group).to_numpy()
-        impulses[f"side_in_{group}"] = _place(side_in_idx, extra_valid=extra_valid)
 
-    impulses["side_in_x_Qdiff"] = _place(side_in_idx, values=trial_table["Q_diff"].abs())
-    impulses["side_in_x_Choice"] = _place(side_in_idx, values=trial_table["chose_left"].astype(float))
+    if include_baseline:
+        impulses[event_name] = _place(event_idx)
+
+    if group_col is not None:
+        group_col_values = trial_table[group_col]
+        if group_values is None:
+            group_values = sorted(group_col_values.dropna().unique())
+        for group in group_values:
+            extra_valid = (group_col_values == group).to_numpy()
+            impulses[f"{event_name}_{group}"] = _place(event_idx, extra_valid=extra_valid)
+
+    if parametric_specs is None:
+        parametric_specs = [
+            ("Qdiff", trial_table["Q_diff"].abs()),
+            ("Choice", trial_table["chose_left"].astype(float)),
+        ]
+    for name, values in parametric_specs:
+        impulses[f"{event_name}_x_{name}"] = _place(event_idx, values=values)
 
     return impulses
 
@@ -131,25 +168,28 @@ def build_shifted_design_matrix(impulses, n_lags):
     return Phi, column_names
 
 
-def build_task_mask_and_groups(trial_table, n_samples, n_lags):
+def build_task_mask_and_groups(trial_table, n_samples, n_lags, event_col="photometry_side_in_index"):
     """Boolean mask of samples to include in fitting, plus a parallel
     integer trial-group id per included sample (for GroupShuffleSplit).
 
-    Since every regressor in this model is anchored at side_in (see
-    build_event_impulses), a trial's included window is exactly its own
-    [side_in - n_lags, side_in + n_lags] span -- precisely the samples any
-    side_in-anchored column can be non-zero at. Samples outside every
-    trial's window (long ITI/baseline, or time near center_in/center_out/
-    side_out with no side_in nearby) are excluded entirely -- fitting the
-    FIR kernels against samples with no side_in-anchored predictor active
-    would waste degrees of freedom on unconstrained baseline noise.
+    Since every regressor anchored at this event (see build_event_impulses'
+    matching event_col) is only non-zero near it, a trial's included window
+    is exactly its own [event - n_lags, event + n_lags] span -- precisely
+    the samples any of that event's columns can be non-zero at. Samples
+    outside every trial's window are excluded entirely -- fitting the FIR
+    kernels against samples with no event-anchored predictor active would
+    waste degrees of freedom on unconstrained baseline noise.
+
+    event_col defaults to side_in for backward compatibility; pass
+    "photometry_side_out_index" for a side_out-anchored mask, or see
+    build_multi_event_mask_and_groups to combine multiple events' windows.
     """
     mask = np.zeros(n_samples, dtype=bool)
     groups = np.full(n_samples, -1, dtype=int)
 
-    side_in = trial_table["photometry_side_in_index"].to_numpy()
+    event_idx = trial_table[event_col].to_numpy()
 
-    for trial_idx, center in enumerate(side_in):
+    for trial_idx, center in enumerate(event_idx):
         if center < 0:
             continue
         lo = max(0, center - n_lags)
@@ -157,6 +197,34 @@ def build_task_mask_and_groups(trial_table, n_samples, n_lags):
         mask[lo:hi] = True
         groups[lo:hi] = trial_idx
 
+    return mask, groups
+
+
+def build_multi_event_mask_and_groups(trial_table, n_samples, n_lags, event_cols):
+    """Union of build_task_mask_and_groups' mask/groups across multiple
+    event columns (e.g. ["photometry_side_in_index", "photometry_side_out_index"]),
+    for a combined multi-event FIR design (see build_event_impulses'
+    event_col/event_name -- call it once per event and merge the resulting
+    impulse dicts before build_shifted_design_matrix).
+
+    Each event's mask/groups are computed independently, then unioned; the
+    per-sample group id is always a trial index (consistent across events,
+    since it comes from the same trial_table row), so a trial's side_in and
+    side_out windows are never split across CV folds. In the rare case where
+    two DIFFERENT trials' windows for different events overlap at the same
+    sample (e.g. a very fast inter-trial interval), the earliest-listed
+    event_col's group id wins for that sample -- a negligible edge case
+    given windows are ~1s and trials are typically several seconds apart.
+    """
+    mask = np.zeros(n_samples, dtype=bool)
+    groups = np.full(n_samples, -1, dtype=int)
+    for event_col in event_cols:
+        event_mask, event_groups = build_task_mask_and_groups(
+            trial_table, n_samples, n_lags, event_col=event_col
+        )
+        newly_covered = event_mask & ~mask
+        groups[newly_covered] = event_groups[newly_covered]
+        mask = mask | event_mask
     return mask, groups
 
 

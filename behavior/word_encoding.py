@@ -158,6 +158,20 @@ def add_lag_features(trial_table, n_lags=3):
     return trial_table
 
 
+def add_reward_seq_2(trial_table):
+    """Add a `reward_seq_2` column: the leading 2 characters of the existing
+    `reward_seq_3` column (t-1, t-2 -- reward_seq_3 is most-recent-first, per
+    add_lag_features' docstring, e.g. "101" = [t-1, t-2, t-3]), i.e. the
+    2-trial-back-only retrospective reward-history bit-string ("00"/"01"/
+    "10"/"11"), for the simplified model series' Model 2 (2-bit variant).
+
+    Requires `reward_seq_3` (from add_lag_features) already present.
+    """
+    trial_table = trial_table.copy()
+    trial_table["reward_seq_2"] = trial_table["reward_seq_3"].str[:2]
+    return trial_table
+
+
 def evaluate_word_outcomes(
     trial_table,
     group_col,
