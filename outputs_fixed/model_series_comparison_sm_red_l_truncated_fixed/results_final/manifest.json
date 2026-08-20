@@ -1,8 +1,8 @@
 {
   "script": "run_model_series_comparison_sm_red_l.main_red_l (manifest backfilled retroactively)",
-  "git_commit": "dead74f7b711463fb143e31784903e834501a232",
+  "git_commit": "52f8babe4c3a9a8d8b52aa8548056e51160a8354",
   "git_dirty": true,
-  "timestamp": "2026-08-20T10:24:19.714652",
+  "timestamp": "2026-08-20T10:35:04.408948",
   "params": {
     "mice": [
       "SM1L",
