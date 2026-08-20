@@ -20,7 +20,13 @@ from datetime import datetime
 from pathlib import Path
 
 
-def write_run_manifest(out_dir, params, script=None):
+class RunWouldOverwriteError(RuntimeError):
+    """Raised when out_dir already holds a manifest.json for a DIFFERENT
+    parameter set and overwrite=True wasn't passed -- see write_run_manifest.
+    """
+
+
+def write_run_manifest(out_dir, params, script=None, overwrite=False):
     """Write out_dir/manifest.json recording the git commit this run was
     produced under, whether the working tree had uncommitted changes at run
     time (dirty=True means this run's exact code isn't fully recoverable
@@ -33,7 +39,34 @@ def write_run_manifest(out_dir, params, script=None):
     (e.g. "run_model_series_comparison_sm_red_l.main_red_l") -- defaults to
     None since the caller usually knows this better than any introspection
     here would.
+
+    overwrite : if out_dir already has a manifest.json recording a DIFFERENT
+    params dict, raise RunWouldOverwriteError instead of proceeding --
+    directory-name-based "versioning" only works if every new parameter set
+    actually gets a new directory, and nothing enforced that before this
+    guard existed. Re-running with the IDENTICAL params (e.g. regenerating
+    after a crash) is always allowed without overwrite=True, since that's
+    not a loss of any distinct prior result. Raised BEFORE the caller does
+    any real work (this is called at the top of main_red_l, before
+    run_comparison/plot_pooled), so the expensive computation never even
+    starts if it would clobber something.
     """
+    out_dir = Path(out_dir)
+    existing_path = out_dir / "manifest.json"
+    if existing_path.exists() and not overwrite:
+        try:
+            existing = json.loads(existing_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = None
+        if existing is not None and existing.get("params") != params:
+            raise RunWouldOverwriteError(
+                f"{existing_path} already records a DIFFERENT parameter set:\n"
+                f"  existing: {json.dumps(existing.get('params'), default=str)}\n"
+                f"  new:      {json.dumps(params, default=str)}\n"
+                "Pick a new out_dir for this run, or pass overwrite=True to "
+                "write_run_manifest if you really mean to replace it."
+            )
+
     repo_dir = Path(__file__).resolve().parent
     try:
         commit = subprocess.run(
@@ -54,7 +87,6 @@ def write_run_manifest(out_dir, params, script=None):
         "params": params,
     }
 
-    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "manifest.json"
     with open(manifest_path, "w") as f:
