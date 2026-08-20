@@ -54,7 +54,7 @@ from config.params import FINAL_SAMPLE_FREQ_HZ, PETH_POST_SEC, PETH_PRE_SEC
 from io_utils.raw_loader import parse_session_id
 from pipeline import extract_event_peth, run_session
 from run_manifest import write_run_manifest
-from run_model_series_comparison import _pool_sessions, plot_pooled, run_comparison
+from run_model_series_comparison import _pool_sessions, _save_pooled_arrays, plot_pooled, run_comparison
 
 CHANNEL_REPORT = Path("outputs_fixed/sm_corrected_channel_report.csv")
 DEFAULT_MICE = ("SM1L", "SM1N", "SM2N", "SM2R", "SM3FR")
@@ -144,26 +144,6 @@ def _load_sm_red_l_sessions(session_dirs, hemisphere="red_l", truncate_at_side_o
     print(f"Dropped {n_forced_in_total}/{n_trials_in_total} forced-choice side_in trials, "
           f"{n_forced_out_total}/{n_trials_out_total} forced-choice side_out trials")
     return sessions
-
-
-def _save_pooled_arrays(out_dir, peth_time_in, zscore_in, trial_table_in,
-                         peth_time_out, zscore_out, trial_table_out):
-    """Cache the pooled (post-session-loop) arrays plot_pooled/run_comparison
-    consume, so a future fit-only or plot-only fix (e.g. a new
-    min_resid_dof/min_retained_frac guard) never again requires repeating the
-    ~85 min raw-session reload that building these arrays costs -- exactly
-    the rework this project just had to pay for twice in a row. Purely
-    additive: doesn't change what main_red_l returns or computes.
-    """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    np.savez(out_dir / "pooled_zscore_windows.npz",
-              zscore_in=zscore_in, zscore_out=zscore_out,
-              peth_time_in=peth_time_in, peth_time_out=peth_time_out)
-    trial_table_in.to_parquet(out_dir / "pooled_trial_table_in.parquet")
-    trial_table_out.to_parquet(out_dir / "pooled_trial_table_out.parquet")
-    print(f"Cached pooled arrays to {out_dir} (pooled_zscore_windows.npz, "
-          "pooled_trial_table_in/out.parquet)")
 
 
 def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=DEFAULT_OUT_DIR, fig_dir=DEFAULT_FIG_DIR,

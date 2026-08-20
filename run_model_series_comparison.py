@@ -89,6 +89,7 @@ from models.fir_glm import (
 from models.glm_encoding import cross_validate_window_glm, fit_time_resolved_glm
 from pipeline import extract_event_peth, run_session
 from run_expanded_glm_analysis import COHORTS, session_hemisphere_lookup
+from run_manifest import write_run_manifest
 from viz.fir_plots import plot_fir_kernels
 from viz.glm_plots import plot_glm_coefficients
 
@@ -292,7 +293,7 @@ HEAD_TO_HEAD_COMPARISONS = [
 ]
 
 
-def _load_all_sessions(session_dirs, hemisphere_for_session):
+def _load_all_sessions(session_dirs, hemisphere_for_session, truncate_at_side_out=False, side_out_margin_s=0.0):
     """Run pipeline.run_session exactly ONCE per session -- not once per
     align_event and once more for FIR -- and derive everything else (the
     side_out-aligned PETH, the FIR continuous trace) from that single call's
@@ -306,6 +307,13 @@ def _load_all_sessions(session_dirs, hemisphere_for_session):
 
     Soft-fails/skips a session that errors at either step, same convention
     as models.fir_glm.build_pooled_fir_dataset.
+
+    truncate_at_side_out/side_out_margin_s : forwarded to run_session's
+    side_in-aligned pass only (see pipeline.extract_event_peth's docstring
+    and run_model_series_comparison_sm_red_l.py's identically-named params)
+    -- opt-in, default False. The side_out-aligned pass below is unaffected
+    (truncating relative to side_out isn't meaningful, and run_session's own
+    check disallows it).
 
     Returns a list of per-session dicts (mouse, date, trial_table_in,
     zscore_windows_in, peth_time_in, trial_table_out, zscore_windows_out,
@@ -321,7 +329,9 @@ def _load_all_sessions(session_dirs, hemisphere_for_session):
         mouse, date = parse_session_id(session_dir)
         hemisphere = hemisphere_for_session[session_dir]
         try:
-            result = run_session(session_dir, hemisphere=hemisphere, align_event="side_in")
+            result = run_session(session_dir, hemisphere=hemisphere, align_event="side_in",
+                                  truncate_at_side_out=truncate_at_side_out,
+                                  side_out_margin_s=side_out_margin_s)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
             n_failed += 1
@@ -577,12 +587,13 @@ def run_comparison(trial_table_in, zscore_in, peth_time_in,
 def plot_pooled(trial_table_in, zscore_in, peth_time_in,
                  trial_table_out, zscore_out, peth_time_out,
                  fir_sessions_by_mouse, fig_dir=FIG_DIR, include_fir=True, model_names=None,
-                 min_retained_frac=None):
-    """Coefficient-trajectory / kernel plots from ALL FP2_none mice pooled
-    together (not per-mouse -- purely to visualize response shapes; the
-    per-mouse CV R^2 tables from run_comparison are the actual comparison).
-    include_fir=False skips the (expensive) FIR kernel plots/fits. model_names
-    restricts to a subset of MODEL_SPECS (see run_comparison).
+                 min_retained_frac=None, cohort_label="FP2_none"):
+    """Coefficient-trajectory / kernel plots from ALL of one cohort's mice
+    pooled together (not per-mouse -- purely to visualize response shapes;
+    the per-mouse CV R^2 tables from run_comparison are the actual
+    comparison). include_fir=False skips the (expensive) FIR kernel
+    plots/fits. model_names restricts to a subset of MODEL_SPECS (see
+    run_comparison).
 
     min_retained_frac : forwarded to fit_time_resolved_glm -- opt-in (None
     disables, matching that function's own default), pass e.g. 0.5 for a
@@ -590,6 +601,12 @@ def plot_pooled(trial_table_in, zscore_in, peth_time_in,
     curve NaNs out (stops) once fewer than that fraction of the original
     trial count remains, instead of extending a visually continuous line
     across a shrinking, self-selected long-dwelling subsample.
+
+    cohort_label : only used for the FIR kernel plots' title prefix (defaults
+    to this module's original "FP2_none" cohort so existing callers are
+    unaffected) -- purely cosmetic, doesn't touch any fitted number, but
+    matters for figure provenance once this function runs against other
+    cohorts too.
     """
     fig_dir = Path(fig_dir)
     fig_dir.mkdir(parents=True, exist_ok=True)
@@ -625,7 +642,7 @@ def plot_pooled(trial_table_in, zscore_in, peth_time_in,
             continue
         try:
             fit = _pooled_fir_fit(all_fir_sessions, spec["fir_builder"], spec["fir_events"], group_col=spec["group_col"])
-            fig = plot_fir_kernels(fit["fold_kernels"], fit["lag_time_s"], title_prefix=f"FP2_none {spec['name']}")
+            fig = plot_fir_kernels(fit["fold_kernels"], fit["lag_time_s"], title_prefix=f"{cohort_label} {spec['name']}")
             stem = fig_dir / f"fir_{spec['name']}_kernels"
             fig.savefig(stem.with_suffix(".png"), dpi=150)
             fig.savefig(stem.with_suffix(".svg"))
@@ -634,7 +651,30 @@ def plot_pooled(trial_table_in, zscore_in, peth_time_in,
     print(f"Saved pooled coefficient plots{' + FIR kernel plots' if include_fir else ' (FIR skipped)'} to {fig_dir}")
 
 
-def main(include_fir=True, model_names=None, out_dir=OUT_DIR, fig_dir=FIG_DIR):
+def _save_pooled_arrays(out_dir, peth_time_in, zscore_in, trial_table_in,
+                         peth_time_out, zscore_out, trial_table_out):
+    """Cache the pooled (post-session-loop) arrays plot_pooled/run_comparison
+    consume, so a future fit-only or plot-only fix (e.g. a new
+    min_resid_dof/min_retained_frac guard) never again requires repeating a
+    full raw-session reload just to re-derive them -- this exact rework
+    already had to be paid for twice on the SM side of this project. Shared
+    here (rather than duplicated per cohort script) since it's fully generic;
+    run_model_series_comparison_sm_red_l.py imports this instead of keeping
+    its own copy.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    np.savez(out_dir / "pooled_zscore_windows.npz",
+              zscore_in=zscore_in, zscore_out=zscore_out,
+              peth_time_in=peth_time_in, peth_time_out=peth_time_out)
+    trial_table_in.to_parquet(out_dir / "pooled_trial_table_in.parquet")
+    trial_table_out.to_parquet(out_dir / "pooled_trial_table_out.parquet")
+    print(f"Cached pooled arrays to {out_dir} (pooled_zscore_windows.npz, "
+          "pooled_trial_table_in/out.parquet)")
+
+
+def main(cohort_label=COHORT_LABEL, include_fir=True, model_names=None, out_dir=OUT_DIR, fig_dir=FIG_DIR,
+         truncate_at_side_out=False, side_out_margin_s=0.0, min_retained_frac=None):
     """include_fir=False runs only the (cheap) time-resolved encoding-GLM
     comparison, skipping FIR/RidgeCV entirely -- FIR's 10-fold GroupShuffleSplit
     CV, each fold a RidgeCV over DEFAULT_ALPHAS, on a mouse's full pooled
@@ -642,21 +682,42 @@ def main(include_fir=True, model_names=None, out_dir=OUT_DIR, fig_dir=FIG_DIR):
     side and can be run separately (e.g. `main(include_fir=True)` again
     later, or a dedicated FIR-only pass) once a faster path is worth building.
 
+    cohort_label : which run_expanded_glm_analysis.COHORTS entry to run --
+        defaults to this module's original COHORT_LABEL ("FP2_none") so a
+        zero-arg main() call is unchanged from prior behavior. Pass e.g.
+        "FP1_none"/"FP1_dcz"/"FP1_retrained_none"/"FP2_dcz" to run this same
+        ladder against a different cohort (this function used to be
+        FP2_none-only via a hardcoded module-level lookup).
+
     model_names : optional subset of MODEL_SPECS['name'] values to run (e.g.
         just the 2-3 models worth paying FIR's cost for). Pass a distinct
         out_dir/fig_dir alongside a subset so it doesn't overwrite a prior
         full-ladder run's output files.
+
+    truncate_at_side_out/side_out_margin_s : opt-in, default False -- see
+        run_model_series_comparison_sm_red_l.py's identically-named params
+        and pipeline.extract_event_peth's docstring. NaNs out each trial's
+        own post-side_out samples in the side_in-aligned PETH windows before
+        fitting.
+
+    min_retained_frac : forwarded to plot_pooled -> fit_time_resolved_glm.
+        None (default) leaves this at truncate_at_side_out's own default:
+        0.5 when truncate_at_side_out=True, None (disabled) otherwise --
+        same auto-default convention as main_red_l. Pass explicitly to
+        override either default.
     """
-    cohort_entry = next((c for c in COHORTS if c[0] == COHORT_LABEL), None)
+    cohort_entry = next((c for c in COHORTS if c[0] == cohort_label), None)
     if cohort_entry is None:
-        raise ValueError(f"Cohort {COHORT_LABEL!r} not found in run_expanded_glm_analysis.COHORTS")
+        raise ValueError(f"Cohort {cohort_label!r} not found in run_expanded_glm_analysis.COHORTS")
     _, master_csv, qc_report_csv, exclude_pairs = cohort_entry
     session_dirs, hemisphere_for_session = session_hemisphere_lookup(master_csv, qc_report_csv, exclude_pairs)
-    print(f"{COHORT_LABEL}: {len(session_dirs)} sessions")
+    print(f"{cohort_label}: {len(session_dirs)} sessions")
 
     print("\nLoading sessions (one pipeline.run_session() pass each, reused for side_in, "
           "side_out, and FIR)...")
-    sessions = _load_all_sessions(session_dirs, hemisphere_for_session)
+    sessions = _load_all_sessions(session_dirs, hemisphere_for_session,
+                                   truncate_at_side_out=truncate_at_side_out,
+                                   side_out_margin_s=side_out_margin_s)
 
     peth_time_in, zscore_in, trial_table_in = _pool_sessions(sessions, "in")
     peth_time_out, zscore_out, trial_table_out = _pool_sessions(sessions, "out")
@@ -665,6 +726,22 @@ def main(include_fir=True, model_names=None, out_dir=OUT_DIR, fig_dir=FIG_DIR):
         fir_sessions_by_mouse.setdefault(s["mouse"], []).append(
             (s["continuous_trial_table"], s["continuous_zscore"])
         )
+
+    _save_pooled_arrays(out_dir, peth_time_in, zscore_in, trial_table_in,
+                        peth_time_out, zscore_out, trial_table_out)
+
+    if min_retained_frac is None and truncate_at_side_out:
+        min_retained_frac = 0.5
+
+    write_run_manifest(
+        out_dir,
+        params=dict(
+            cohort_label=cohort_label, include_fir=include_fir, model_names=model_names,
+            truncate_at_side_out=truncate_at_side_out, side_out_margin_s=side_out_margin_s,
+            min_retained_frac=min_retained_frac, n_sessions=len(session_dirs),
+        ),
+        script="run_model_series_comparison.main",
+    )
 
     encoding_df, fir_df, stats = run_comparison(
         trial_table_in, zscore_in, peth_time_in,
@@ -676,6 +753,7 @@ def main(include_fir=True, model_names=None, out_dir=OUT_DIR, fig_dir=FIG_DIR):
         trial_table_in, zscore_in, peth_time_in,
         trial_table_out, zscore_out, peth_time_out,
         fir_sessions_by_mouse, fig_dir=Path(fig_dir), include_fir=include_fir, model_names=model_names,
+        min_retained_frac=min_retained_frac, cohort_label=cohort_label,
     )
 
     # Sanity check: Model 1 and Model 2b's 1-letter word are the same model
