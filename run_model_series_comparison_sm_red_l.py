@@ -53,6 +53,7 @@ from behavior.word_encoding import add_reward_seq_2
 from config.params import FINAL_SAMPLE_FREQ_HZ, PETH_POST_SEC, PETH_PRE_SEC
 from io_utils.raw_loader import parse_session_id
 from pipeline import extract_event_peth, run_session
+from run_manifest import write_run_manifest
 from run_model_series_comparison import _pool_sessions, plot_pooled, run_comparison
 
 CHANNEL_REPORT = Path("outputs_fixed/sm_corrected_channel_report.csv")
@@ -208,6 +209,16 @@ def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=
 
     if min_retained_frac is None and truncate_at_side_out:
         min_retained_frac = 0.5
+
+    write_run_manifest(
+        out_dir,
+        params=dict(
+            mice=sorted(mice), hemisphere=hemisphere, model_names=model_names,
+            truncate_at_side_out=truncate_at_side_out, side_out_margin_s=side_out_margin_s,
+            min_retained_frac=min_retained_frac, n_sessions=len(session_dirs),
+        ),
+        script="run_model_series_comparison_sm_red_l.main_red_l",
+    )
 
     encoding_df, fir_df, stats = run_comparison(
         trial_table_in, zscore_in, peth_time_in,

@@ -1,0 +1,27 @@
+{
+  "script": "run_model_series_comparison_sm_red_l.main_red_l (manifest backfilled retroactively)",
+  "git_commit": "dead74f7b711463fb143e31784903e834501a232",
+  "git_dirty": true,
+  "timestamp": "2026-08-20T10:24:19.579673",
+  "params": {
+    "mice": [
+      "SM1L",
+      "SM1N",
+      "SM2N",
+      "SM2R",
+      "SM3FR"
+    ],
+    "hemisphere": "red_l",
+    "model_names": [
+      "1_main_effects",
+      "2b_word_l2",
+      "3c_reward_qchosen_qdiff",
+      "3d_reward_qchosen_rpeabs_qdiff"
+    ],
+    "truncate_at_side_out": true,
+    "side_out_margin_s": 0.0,
+    "min_retained_frac": null,
+    "backfilled": true,
+    "note": "truncation feature added, but cross_validate_window_glm had a whole-trial dwell-time selection bias (plain .mean() not nanmean) and fit_time_resolved_glm had no representativeness guard -- KNOWN BUGGY, superseded by *_truncated_fixed"
+  }
+}
