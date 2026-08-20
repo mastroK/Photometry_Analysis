@@ -1,0 +1,26 @@
+{
+  "script": "run_model_series_comparison_sm_red_l.main_red_l",
+  "git_commit": "cdabccf6c25e4a6f8ad45849103cbc7140b60de5",
+  "git_dirty": true,
+  "timestamp": "2026-08-20T18:09:13.934925",
+  "params": {
+    "mice": [
+      "SM1L",
+      "SM1N",
+      "SM2N",
+      "SM2R",
+      "SM3FR"
+    ],
+    "hemisphere": "green_r",
+    "model_names": [
+      "1_main_effects",
+      "2b_word_l2",
+      "3c_reward_qchosen_qdiff",
+      "3d_reward_qchosen_rpeabs_qdiff"
+    ],
+    "truncate_at_side_out": true,
+    "side_out_margin_s": 0.0,
+    "min_retained_frac": 0.5,
+    "n_sessions": 75
+  }
+}

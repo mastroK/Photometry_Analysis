@@ -1,0 +1,75 @@
+{
+  "encoding_glm": {
+    "1_main_effects_vs_2_2bit_seq": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.015625,
+      "n_positive": 7,
+      "n_mice": 7,
+      "mean_delta_r2": 0.033913576066931905
+    },
+    "2_2bit_seq_vs_2_3bit_seq": {
+      "wilcoxon_stat": 7.0,
+      "wilcoxon_p": 0.296875,
+      "n_positive": 5,
+      "n_mice": 7,
+      "mean_delta_r2": 0.007204777430016051
+    },
+    "2_3bit_seq_vs_2b_word_l1": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.015625,
+      "n_positive": 0,
+      "n_mice": 7,
+      "mean_delta_r2": -0.04111835349694788
+    },
+    "2b_word_l1_vs_2b_word_l2": {
+      "wilcoxon_stat": 11.0,
+      "wilcoxon_p": 0.6875,
+      "n_positive": 3,
+      "n_mice": 7,
+      "mean_delta_r2": -0.005670345727694626
+    },
+    "2b_word_l2_vs_2b_word_l3": {
+      "wilcoxon_stat": 1.0,
+      "wilcoxon_p": 1.0,
+      "n_positive": 1,
+      "n_mice": 2,
+      "mean_delta_r2": 0.01376427838747138
+    },
+    "2b_word_l2_vs_3_qdiff_rpe": {
+      "wilcoxon_stat": 14.0,
+      "wilcoxon_p": 1.0,
+      "n_positive": 3,
+      "n_mice": 7,
+      "mean_delta_r2": 0.005553955528280395
+    },
+    "2b_word_l2_vs_3b_reward_qdiff": {
+      "wilcoxon_stat": 10.0,
+      "wilcoxon_p": 0.578125,
+      "n_positive": 4,
+      "n_mice": 7,
+      "mean_delta_r2": 0.008113727064880791
+    },
+    "2b_word_l2_vs_3c_reward_qchosen_qdiff": {
+      "wilcoxon_stat": 11.0,
+      "wilcoxon_p": 0.6875,
+      "n_positive": 4,
+      "n_mice": 7,
+      "mean_delta_r2": 0.00776140866253365
+    },
+    "2b_word_l2_vs_3d_reward_qchosen_rpeabs_qdiff": {
+      "wilcoxon_stat": 11.0,
+      "wilcoxon_p": 0.6875,
+      "n_positive": 4,
+      "n_mice": 7,
+      "mean_delta_r2": 0.005203622963924453
+    },
+    "3c_reward_qchosen_qdiff_vs_3d_reward_qchosen_rpeabs_qdiff": {
+      "wilcoxon_stat": 14.0,
+      "wilcoxon_p": 1.0,
+      "n_positive": 3,
+      "n_mice": 7,
+      "mean_delta_r2": -0.002557785698609196
+    }
+  },
+  "fir_glm": {}
+}

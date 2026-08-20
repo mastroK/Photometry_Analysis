@@ -1,0 +1,15 @@
+{
+  "script": "run_model_series_comparison.main",
+  "git_commit": "cdabccf6c25e4a6f8ad45849103cbc7140b60de5",
+  "git_dirty": true,
+  "timestamp": "2026-08-20T16:53:55.396281",
+  "params": {
+    "cohort_label": "FP2_dcz",
+    "include_fir": false,
+    "model_names": null,
+    "truncate_at_side_out": true,
+    "side_out_margin_s": 0.0,
+    "min_retained_frac": 0.5,
+    "n_sessions": 8
+  }
+}

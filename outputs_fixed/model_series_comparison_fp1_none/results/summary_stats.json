@@ -1,0 +1,75 @@
+{
+  "encoding_glm": {
+    "1_main_effects_vs_2_2bit_seq": {
+      "wilcoxon_stat": 1.0,
+      "wilcoxon_p": 0.03125,
+      "n_positive": 1,
+      "n_mice": 7,
+      "mean_delta_r2": -0.02441938775089007
+    },
+    "2_2bit_seq_vs_2_3bit_seq": {
+      "wilcoxon_stat": 5.0,
+      "wilcoxon_p": 0.15625,
+      "n_positive": 5,
+      "n_mice": 7,
+      "mean_delta_r2": 0.005505219635920162
+    },
+    "2_3bit_seq_vs_2b_word_l1": {
+      "wilcoxon_stat": 3.0,
+      "wilcoxon_p": 0.078125,
+      "n_positive": 5,
+      "n_mice": 7,
+      "mean_delta_r2": 0.01891416811497002
+    },
+    "2b_word_l1_vs_2b_word_l2": {
+      "wilcoxon_stat": 6.0,
+      "wilcoxon_p": 0.21875,
+      "n_positive": 6,
+      "n_mice": 7,
+      "mean_delta_r2": 0.005434222559350434
+    },
+    "2b_word_l2_vs_2b_word_l3": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.03125,
+      "n_positive": 6,
+      "n_mice": 6,
+      "mean_delta_r2": 0.03834596133963784
+    },
+    "2b_word_l2_vs_3_qdiff_rpe": {
+      "wilcoxon_stat": 3.0,
+      "wilcoxon_p": 0.078125,
+      "n_positive": 1,
+      "n_mice": 7,
+      "mean_delta_r2": -0.01846265909957976
+    },
+    "2b_word_l2_vs_3b_reward_qdiff": {
+      "wilcoxon_stat": 6.0,
+      "wilcoxon_p": 0.21875,
+      "n_positive": 1,
+      "n_mice": 7,
+      "mean_delta_r2": -0.0033249912738431615
+    },
+    "2b_word_l2_vs_3c_reward_qchosen_qdiff": {
+      "wilcoxon_stat": 8.0,
+      "wilcoxon_p": 0.375,
+      "n_positive": 2,
+      "n_mice": 7,
+      "mean_delta_r2": -0.0023638992329670103
+    },
+    "2b_word_l2_vs_3d_reward_qchosen_rpeabs_qdiff": {
+      "wilcoxon_stat": 3.0,
+      "wilcoxon_p": 0.078125,
+      "n_positive": 5,
+      "n_mice": 7,
+      "mean_delta_r2": 0.006141408140080922
+    },
+    "3c_reward_qchosen_qdiff_vs_3d_reward_qchosen_rpeabs_qdiff": {
+      "wilcoxon_stat": 0.0,
+      "wilcoxon_p": 0.015625,
+      "n_positive": 7,
+      "n_mice": 7,
+      "mean_delta_r2": 0.008505307373047933
+    }
+  },
+  "fir_glm": {}
+}
