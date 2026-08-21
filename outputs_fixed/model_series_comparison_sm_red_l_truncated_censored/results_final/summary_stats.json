@@ -1,0 +1,26 @@
+{
+  "encoding_glm": {
+    "2b_word_l2_vs_3c_reward_qchosen_qdiff": {
+      "wilcoxon_stat": 1.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 1,
+      "n_mice": 5,
+      "mean_delta_r2": -0.016073229841878894
+    },
+    "2b_word_l2_vs_3d_reward_qchosen_rpeabs_qdiff": {
+      "wilcoxon_stat": 1.0,
+      "wilcoxon_p": 0.125,
+      "n_positive": 1,
+      "n_mice": 5,
+      "mean_delta_r2": -0.015941054821862175
+    },
+    "3c_reward_qchosen_qdiff_vs_3d_reward_qchosen_rpeabs_qdiff": {
+      "wilcoxon_stat": 5.0,
+      "wilcoxon_p": 0.625,
+      "n_positive": 3,
+      "n_mice": 5,
+      "mean_delta_r2": 0.0001321750200167199
+    }
+  },
+  "fir_glm": {}
+}

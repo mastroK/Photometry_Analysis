@@ -69,7 +69,8 @@ def get_sm_red_l_session_dirs(mice=DEFAULT_MICE, hemisphere="red_l"):
 
 
 def _load_sm_red_l_sessions(session_dirs, hemisphere="red_l", truncate_at_side_out=False,
-                             side_out_margin_s=0.0):
+                             side_out_margin_s=0.0, censor_prev_trial=False,
+                             prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """SM red_l analog of run_model_series_comparison._load_all_sessions --
     see module docstring for the three differences (hemisphere, forced
     carrier freq, forced-choice exclusion). Doesn't build the continuous-
@@ -81,6 +82,10 @@ def _load_sm_red_l_sessions(session_dirs, hemisphere="red_l", truncate_at_side_o
     -- opt-in, default False. The side_out-aligned pass below is unaffected
     (and disallowed by run_session's own check, since dwell-time truncation
     is only meaningful relative to side_in).
+
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s :
+    forwarded to run_session's side_in-aligned pass only, same opt-in
+    default-False convention -- see pipeline.extract_event_peth's docstring.
     """
     pre_samples = int(round(PETH_PRE_SEC * FINAL_SAMPLE_FREQ_HZ))
     post_samples = int(round(PETH_POST_SEC * FINAL_SAMPLE_FREQ_HZ))
@@ -95,7 +100,10 @@ def _load_sm_red_l_sessions(session_dirs, hemisphere="red_l", truncate_at_side_o
             result = run_session(session_dir, hemisphere=hemisphere, align_event="side_in",
                                   force_nominal_carrier_freq=True,
                                   truncate_at_side_out=truncate_at_side_out,
-                                  side_out_margin_s=side_out_margin_s)
+                                  side_out_margin_s=side_out_margin_s,
+                                  censor_prev_trial=censor_prev_trial,
+                                  prev_trial_max_duration_s=prev_trial_max_duration_s,
+                                  prev_trial_margin_s=prev_trial_margin_s)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
             n_failed += 1
@@ -147,7 +155,8 @@ def _load_sm_red_l_sessions(session_dirs, hemisphere="red_l", truncate_at_side_o
 
 
 def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=DEFAULT_OUT_DIR, fig_dir=DEFAULT_FIG_DIR,
-                truncate_at_side_out=False, side_out_margin_s=0.0, min_retained_frac=None):
+                truncate_at_side_out=False, side_out_margin_s=0.0, min_retained_frac=None,
+                censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """include_fir is not exposed -- always False here (see module docstring).
     model_names / out_dir / fig_dir match run_model_series_comparison.main's
     contract exactly. hemisphere defaults to "red_l" (this module's original
@@ -171,6 +180,16 @@ def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=
     (disabled) when truncate_at_side_out=False, since n_trials is constant
     across timepoints there and the guard would never fire anyway. Pass
     explicitly to override either default.
+
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s :
+    opt-in, default False -- see pipeline.extract_event_peth's docstring and
+    validation/diagnose_pre_event_wiggle.py. NaNs out each trial's own
+    pre-event samples that fall after the previous trial's own outcome.
+    Independent of truncate_at_side_out (that handles the POST-event side);
+    both can be enabled together. Does not affect
+    encoding_glm_model_comparison.csv's per-mouse CV numbers (DECISION_WINDOW_S
+    is entirely post-event) -- only the pooled fit_time_resolved_glm
+    visualization, which spans the full pre/post window.
     """
     session_dirs = get_sm_red_l_session_dirs(mice, hemisphere=hemisphere)
     print(f"SM {hemisphere}, mice={sorted(mice)}: {len(session_dirs)} sessions")
@@ -178,7 +197,10 @@ def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=
     print("\nLoading sessions (one pipeline.run_session() pass each, reused for side_in, side_out)...")
     sessions = _load_sm_red_l_sessions(session_dirs, hemisphere=hemisphere,
                                         truncate_at_side_out=truncate_at_side_out,
-                                        side_out_margin_s=side_out_margin_s)
+                                        side_out_margin_s=side_out_margin_s,
+                                        censor_prev_trial=censor_prev_trial,
+                                        prev_trial_max_duration_s=prev_trial_max_duration_s,
+                                        prev_trial_margin_s=prev_trial_margin_s)
 
     peth_time_in, zscore_in, trial_table_in = _pool_sessions(sessions, "in")
     peth_time_out, zscore_out, trial_table_out = _pool_sessions(sessions, "out")
@@ -196,6 +218,8 @@ def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=
             mice=sorted(mice), hemisphere=hemisphere, model_names=model_names,
             truncate_at_side_out=truncate_at_side_out, side_out_margin_s=side_out_margin_s,
             min_retained_frac=min_retained_frac, n_sessions=len(session_dirs),
+            censor_prev_trial=censor_prev_trial, prev_trial_max_duration_s=prev_trial_max_duration_s,
+            prev_trial_margin_s=prev_trial_margin_s,
         ),
         script="run_model_series_comparison_sm_red_l.main_red_l",
     )
