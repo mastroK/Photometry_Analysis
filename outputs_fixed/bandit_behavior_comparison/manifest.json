@@ -1,0 +1,22 @@
+{
+  "script": "run_bandit_behavior_comparison.main",
+  "git_commit": "946daefe75ea5a233bb4ed83755d05798706fc32",
+  "git_dirty": true,
+  "timestamp": "2026-08-21T11:09:55.277472",
+  "params": {
+    "sm_mice": [
+      "SM1L",
+      "SM1N",
+      "SM2N",
+      "SM2R",
+      "SM3FR"
+    ],
+    "fp_cohorts": [
+      "FP1_none",
+      "FP1_dcz",
+      "FP1_retrained_none",
+      "FP2_none",
+      "FP2_dcz"
+    ]
+  }
+}
