@@ -178,3 +178,87 @@ def truncate_windows_after_side_out(windows, peth_time, trial_table,
     # peth_time[None, :] broadcasts against latency_s[:, None] -- one keep-mask row per trial.
     keep = peth_time[None, :] <= (latency_s[:, None] + margin_s)
     return np.where(keep, windows, np.nan)
+
+
+def compute_prev_trial_gap_s(trial_table, align_col, prev_align_col="photometry_side_in_index"):
+    """(n_trials,) array: gap in seconds from the immediately preceding
+    trial's own `prev_align_col` event (default side_in -- behavior/sync.py
+    notes photometry_outcome_index == photometry_side_in_index, i.e. side_in
+    IS this task's outcome-delivery event, regardless of which alignment a
+    caller's own PETH windows use) to THIS trial's own `align_col` event
+    (peth_time=0 for whatever alignment the caller's PETH windows use). NaN
+    for the first (chronologically earliest) row (no preceding trial).
+
+    Sorts internally by `prev_align_col` to determine adjacency rather than
+    trusting `trial_table`'s existing row order -- confirmed necessary, not
+    a hypothetical: a handful of real sessions have a few trailing rows out
+    of chronological order by 100+ seconds (a raw-segment-boundary artifact
+    in how those rows were parsed), which would otherwise silently pair a
+    trial with the wrong "previous" one. Also requires no trials silently
+    dropped in between -- e.g. extract_event_peth's full, align_col-filtered
+    trial_table BEFORE has_peth_window-style filtering, not the final
+    peth_trial_table. Computing this on an already-filtered table would
+    silently use the wrong "previous" trial whenever an intervening trial
+    was removed (a dropped trial's own response still physically happened
+    and could still contaminate the next surviving trial's window, so its
+    absence from the table must not be read as "no previous trial").
+    """
+    this_idx = trial_table[align_col].to_numpy(dtype=float)
+    prev_source_idx = trial_table[prev_align_col].to_numpy(dtype=float)
+
+    order = np.argsort(prev_source_idx, kind="stable")
+    prev_idx_sorted = np.concatenate([[np.nan], prev_source_idx[order][:-1]])
+    prev_idx = np.empty_like(prev_idx_sorted)
+    prev_idx[order] = prev_idx_sorted
+
+    return (this_idx - prev_idx) / FINAL_SAMPLE_FREQ_HZ
+
+
+def censor_windows_before_prev_trial_outcome(windows, peth_time, prev_gap_s,
+                                              max_duration_s=None, margin_s=0.0):
+    """NaN out each trial's own PRE-event samples that fall after the
+    previous trial's own outcome and before this trial's own align event
+    (peth_time=0) -- the region where that previous trial's own response
+    could still be bleeding into this trial's pre-event window. This task
+    has no hardware inter-trial interval (median gap ~2.7s in the cohorts
+    checked so far; see validation/diagnose_pre_event_wiggle.py, which
+    confirmed via a short-vs-long prev-trial-gap tercile split that a fixed
+    pre-event window's early timepoints can show a large, structured
+    previous-trial-outcome echo -- R^2 up to 0.31 for short-gap trials vs
+    a flat 0.01-0.07 for long-gap trials -- not genuine pre-trial
+    anticipatory signal).
+
+    windows : (n_trials, n_samples) array, e.g. output of extract_peth or
+        compute_event_aligned_zscore -- row-aligned with `prev_gap_s`.
+    prev_gap_s : (n_trials,) array, row-aligned with `windows` -- from
+        compute_prev_trial_gap_s, already subset to match `windows`' rows
+        (e.g. filtered by the same has_peth_window mask used to build
+        `windows` from the fuller trial_table compute_prev_trial_gap_s
+        needs). NaN entries (no previous trial) get no censoring.
+    max_duration_s : cap how far back a previous trial's outcome is assumed
+        to still be actively contaminating -- None (default) uses the exact
+        measured gap, however large, so a trial with e.g. a 5s gap gets its
+        ENTIRE pre-event window censored (literally, the whole window
+        postdates that outcome). Pass e.g. 1.75 to cap it to the same
+        conservative, already-validated duration used for
+        KINETICS_METRIC_WINDOW_S, so a long-gap trial's earliest pre-event
+        samples (assumed already resolved) are left alone.
+    margin_s : subtracted from the censored region's start (extends how far
+        back censoring reaches, for a bit of conservative buffer) -- same
+        role as truncate_windows_after_side_out's margin_s, direction
+        reversed since here the margin should extend the CENSORED span, not
+        the kept one.
+
+    Returns a NEW float array (never mutates `windows` in place).
+    """
+    windows = np.asarray(windows, dtype=float)
+    peth_time = np.asarray(peth_time)
+    prev_gap_s = np.asarray(prev_gap_s, dtype=float)
+
+    contaminated_lo = -prev_gap_s - margin_s
+    if max_duration_s is not None:
+        contaminated_lo = np.maximum(contaminated_lo, -max_duration_s - margin_s)
+
+    mask = (peth_time[None, :] >= contaminated_lo[:, None]) & (peth_time[None, :] < 0)
+    mask = np.where(np.isnan(prev_gap_s)[:, None], False, mask)
+    return np.where(mask, np.nan, windows)

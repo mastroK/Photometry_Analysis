@@ -22,7 +22,8 @@ from pipeline import run_session
 def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
                               hemisphere=DEFAULT_HEMISPHERE, max_segments=None,
                               hemisphere_for_session=None, truncate_at_side_out=False,
-                              side_out_margin_s=0.0):
+                              side_out_margin_s=0.0, censor_prev_trial=False,
+                              prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """Run every session_dir through run_session(align_event=...) and stack
     each session's all_zscore_windows / peth_trial_table into one pooled
     (windows, trial_table) pair, tagged with mouse/date.
@@ -48,6 +49,11 @@ def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
         pipeline.extract_event_peth, opt-in and default False -- see that
         function's docstring. Only meaningful for align_event="side_in".
 
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s :
+        forwarded to run_session/pipeline.extract_event_peth, opt-in and
+        default False -- see that function's docstring. Valid for any
+        align_event.
+
     Returns (peth_time, zscore_windows, pooled_trial_table):
       peth_time : (n_samples,) seconds-from-event offsets, shared across the
           whole pool.
@@ -67,7 +73,9 @@ def build_pooled_glm_dataset(session_dirs, align_event=DEFAULT_ALIGN_EVENT,
         try:
             result = run_session(session_dir, hemisphere=session_hemisphere, max_segments=max_segments,
                                   align_event=align_event, truncate_at_side_out=truncate_at_side_out,
-                                  side_out_margin_s=side_out_margin_s)
+                                  side_out_margin_s=side_out_margin_s, censor_prev_trial=censor_prev_trial,
+                                  prev_trial_max_duration_s=prev_trial_max_duration_s,
+                                  prev_trial_margin_s=prev_trial_margin_s)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
             n_failed += 1

@@ -17,8 +17,10 @@ from pathlib import Path
 import numpy as np
 
 from alignment.windowing import (
+    censor_windows_before_prev_trial_outcome,
     compute_event_aligned_zscore,
     compute_per_trial_event_metrics,
+    compute_prev_trial_gap_s,
     extract_peth,
     get_event_indices,
     truncate_windows_after_side_out,
@@ -58,7 +60,8 @@ DEFAULT_FIGURE_DIR = Path(__file__).parent / "figures"
 
 
 def extract_event_peth(trial_table, dff, align_event, pre_samples, post_samples, peth_time,
-                        truncate_at_side_out=False, side_out_margin_s=0.0):
+                        truncate_at_side_out=False, side_out_margin_s=0.0,
+                        censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """Filter trial_table to the trials with a valid `align_event` photometry
     index, then build that event's PETH windows (dff + baseline-normalized
     z-score) -- run_session's own step 6, factored out here so a caller that
@@ -84,6 +87,20 @@ def extract_event_peth(trial_table, dff, align_event, pre_samples, post_samples,
         align_event="side_in" (dwell time relative to any other alignment is
         undefined) -- raises ValueError otherwise.
 
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s : opt-in,
+        default False -- NaNs out each trial's own PRE-event samples that
+        fall after the PREVIOUS trial's own outcome (side_in) and before
+        this trial's own align event (see
+        alignment.windowing.censor_windows_before_prev_trial_outcome). This
+        task has no hardware inter-trial interval, so a fixed pre-event
+        window can, for a short-gap trial, still be showing the previous
+        trial's own outcome-locked response rather than genuine pre-trial
+        baseline (confirmed via validation/diagnose_pre_event_wiggle.py's
+        short-vs-long-gap tercile split). Valid for any align_event (unlike
+        truncate_at_side_out) since the previous trial's own outcome can
+        contaminate the pre-event window regardless of what THIS trial's
+        own PETH is aligned to.
+
     Returns (filtered_trial_table, peth_trial_table, all_dff_windows,
     all_zscore_windows, z_stats).
     """
@@ -95,6 +112,12 @@ def extract_event_peth(trial_table, dff, align_event, pre_samples, post_samples,
 
     align_col = ALIGN_EVENT_COLUMNS[align_event]
     trial_table = trial_table[trial_table[align_col] >= 0].reset_index(drop=True)
+
+    # Computed on this fuller, pre-has_peth_window-filter table (not
+    # peth_trial_table below) -- see compute_prev_trial_gap_s's docstring on
+    # why a dropped intervening trial must not be read as "no previous trial".
+    if censor_prev_trial:
+        prev_gap_s_full = compute_prev_trial_gap_s(trial_table, align_col)
 
     event_idx = get_event_indices(trial_table, align_event)
     has_peth_window = (event_idx - pre_samples >= 0) & (event_idx + post_samples < len(dff))
@@ -112,12 +135,22 @@ def extract_event_peth(trial_table, dff, align_event, pre_samples, post_samples,
         all_zscore_windows = truncate_windows_after_side_out(
             all_zscore_windows, peth_time, peth_trial_table, margin_s=side_out_margin_s)
 
+    if censor_prev_trial:
+        prev_gap_s = prev_gap_s_full[has_peth_window]
+        all_dff_windows = censor_windows_before_prev_trial_outcome(
+            all_dff_windows, peth_time, prev_gap_s,
+            max_duration_s=prev_trial_max_duration_s, margin_s=prev_trial_margin_s)
+        all_zscore_windows = censor_windows_before_prev_trial_outcome(
+            all_zscore_windows, peth_time, prev_gap_s,
+            max_duration_s=prev_trial_max_duration_s, margin_s=prev_trial_margin_s)
+
     return trial_table, peth_trial_table, all_dff_windows, all_zscore_windows, z_stats
 
 
 def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, output_dir=None,
                  compute_bandit_state=True, align_event=DEFAULT_ALIGN_EVENT, force_nominal_carrier_freq=False,
-                 return_dff_intermediates=False, truncate_at_side_out=False, side_out_margin_s=0.0):
+                 return_dff_intermediates=False, truncate_at_side_out=False, side_out_margin_s=0.0,
+                 censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """force_nominal_carrier_freq : skip estimate_carrier_freq's own free-ranging
     FFT peak search (over the WHOLE raw spectrum) and instead demodulate directly
     at channels.nominal_carrier_freq_hz. Added for the SM cohort's cross-talk
@@ -132,6 +165,10 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
 
     truncate_at_side_out : opt-in, default False -- see extract_event_peth's
     docstring. Only meaningful for align_event="side_in".
+
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s : opt-in,
+    default False -- see extract_event_peth's docstring. Valid for any
+    align_event.
     """
     if align_event not in ALIGN_EVENT_COLUMNS:
         raise ValueError(f"Unknown align_event {align_event!r}; must be one of {list(ALIGN_EVENT_COLUMNS)}")
@@ -217,6 +254,8 @@ def run_session(session_dir, max_segments=None, hemisphere=DEFAULT_HEMISPHERE, o
     trial_table, peth_trial_table, all_dff_windows, all_zscore_windows, z_stats = extract_event_peth(
         full_trial_table, dff, align_event, pre_samples, post_samples, peth_time,
         truncate_at_side_out=truncate_at_side_out, side_out_margin_s=side_out_margin_s,
+        censor_prev_trial=censor_prev_trial, prev_trial_max_duration_s=prev_trial_max_duration_s,
+        prev_trial_margin_s=prev_trial_margin_s,
     )
 
     is_rewarded = peth_trial_table["was_rewarded"].to_numpy()
