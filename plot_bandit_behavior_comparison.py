@@ -122,6 +122,96 @@ def plot_by_age(df, out_dir):
     plt.close(fig)
 
 
+SM_AGE_CUTOFF_DAYS = 100  # matches run_sm_age_split_comparison.py's AGE_CUTOFF_DAYS
+
+
+def plot_sm_young_vs_old(df, out_dir):
+    """SM only, split at the median age (see SM_AGE_CUTOFF_DAYS) into young/old
+    groups -- the direct young-vs-old counterpart to plot_by_condition's
+    cross-cohort view, for the age effect within SM specifically.
+    """
+    sm_df = df[df["cohort"] == "SM"].copy()
+    sm_df["age_group"] = np.where(sm_df["age_numeric_days"] < SM_AGE_CUTOFF_DAYS, "young", "old")
+    age_palette = {"young": "#55A868", "old": "#8172B2"}
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    for ax, param in zip(axes, PARAMS):
+        sns.boxplot(data=sm_df, x="age_group", y=param, order=["young", "old"],
+                    palette=age_palette, showfliers=False, ax=ax)
+        sns.stripplot(data=sm_df, x="age_group", y=param, order=["young", "old"], hue="mouse",
+                      size=5, alpha=0.7, jitter=True, ax=ax, legend=(ax is axes[0]))
+        pinned = sm_df[sm_df[f"{param}_at_bound"]]
+        if len(pinned):
+            sns.stripplot(data=pinned, x="age_group", y=param, order=["young", "old"], color="red",
+                          marker="x", size=6, jitter=True, ax=ax, legend=False)
+        if param == "beta":
+            ax.set_yscale("log")
+        u, p = stats.mannwhitneyu(sm_df.loc[sm_df.age_group == "young", param],
+                                   sm_df.loc[sm_df.age_group == "old", param], alternative="two-sided")
+        ax.set_title(f"{PARAM_LABELS[param]}\nsession-level Mann-Whitney p={p:.4f}")
+        ax.set_xlabel("")
+    n_young = sm_df.age_group.eq("young").sum()
+    n_old = sm_df.age_group.eq("old").sum()
+    n_mice_young = sm_df.loc[sm_df.age_group == "young", "mouse"].nunique()
+    n_mice_old = sm_df.loc[sm_df.age_group == "old", "mouse"].nunique()
+    fig.suptitle(f"SM behavioral parameters: young (age_bin<P{SM_AGE_CUTOFF_DAYS}, n={n_young} sessions/"
+                 f"{n_mice_young} mice) vs old (n={n_old} sessions/{n_mice_old} mice)\n"
+                 "red x = boundary-pinned fit; session-level test (see mixedlm_bandit_behavior.py "
+                 "for the mouse-random-intercept version)")
+    fig.tight_layout()
+    fig.savefig(out_dir / "sm_young_vs_old.png", dpi=150)
+    plt.close(fig)
+
+
+def plot_sm_young_vs_old_per_mouse(df, out_dir):
+    """Per-mouse young/old means with paired lines -- the mouse-level
+    counterpart to plot_sm_young_vs_old's session-level (pseudoreplicated)
+    test. Most SM mice contribute sessions to BOTH age groups (they age
+    across the recording span), so this is a within-mouse paired comparison
+    (Wilcoxon signed-rank), not two independent-sample groups.
+    """
+    sm_df = df[df["cohort"] == "SM"].copy()
+    sm_df["age_group"] = np.where(sm_df["age_numeric_days"] < SM_AGE_CUTOFF_DAYS, "young", "old")
+    per_mouse = sm_df.groupby(["mouse", "age_group"])[PARAMS].mean().reset_index()
+
+    print("\n=== SM young vs old, PER-MOUSE means (mouse-level test, not session-level) ===")
+    print(per_mouse.to_string(index=False))
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    for ax, param in zip(axes, PARAMS):
+        wide = per_mouse.pivot(index="mouse", columns="age_group", values=param)
+        paired = wide[["young", "old"]].dropna()
+        for mouse, row in wide.iterrows():
+            xs, ys = [], []
+            if pd.notna(row.get("young")):
+                xs.append(0); ys.append(row["young"])
+            if pd.notna(row.get("old")):
+                xs.append(1); ys.append(row["old"])
+            style = "-o" if len(xs) == 2 else "o"
+            ax.plot(xs, ys, style, label=mouse, alpha=0.8)
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(["young", "old"])
+        if param == "beta":
+            ax.set_yscale("log")
+        if len(paired) >= 2:
+            stat, p = stats.wilcoxon(paired["young"], paired["old"])
+            title = f"{PARAM_LABELS[param]}\npaired Wilcoxon (n={len(paired)} mice) p={p:.4f}"
+            print(f"  {param}: young mean={paired['young'].mean():.3f}, old mean={paired['old'].mean():.3f}, "
+                  f"n_paired_mice={len(paired)}, Wilcoxon p={p:.4f}")
+        else:
+            title = f"{PARAM_LABELS[param]}\ninsufficient paired mice (n={len(paired)})"
+            print(f"  {param}: insufficient paired mice (n={len(paired)})")
+        ax.set_title(title)
+    axes[0].legend(title="mouse", fontsize=8)
+    n_mice_young = sm_df.loc[sm_df.age_group == "young", "mouse"].nunique()
+    n_mice_old = sm_df.loc[sm_df.age_group == "old", "mouse"].nunique()
+    fig.suptitle(f"SM young vs old, PER-MOUSE means (n={n_mice_young} young mice, {n_mice_old} old mice; "
+                 "lines connect the same mouse's young -> old mean; SM3FR has no young sessions)")
+    fig.tight_layout()
+    fig.savefig(out_dir / "sm_young_vs_old_per_mouse.png", dpi=150)
+    plt.close(fig)
+
+
 def plot_dcz_effect(df, out_dir):
     dcz_df = df[df["cohort"].isin(["FP1_none", "FP1_dcz", "FP2_none", "FP2_dcz"])].copy()
     dcz_df["family"] = dcz_df["cohort_family"]
@@ -199,6 +289,8 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     plot_by_condition(df, OUT_DIR)
     plot_by_age(df, OUT_DIR)
+    plot_sm_young_vs_old(df, OUT_DIR)
+    plot_sm_young_vs_old_per_mouse(df, OUT_DIR)
     plot_dcz_effect(df, OUT_DIR)
     summarize_stats(df)
     print(f"\nWrote figures to {OUT_DIR}/")

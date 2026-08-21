@@ -199,11 +199,44 @@ def fit_time_resolved_glm(
     rows = []
     n_degenerate = 0
     n_underrepresented = 0
+    n_empty = 0
     n_trials_t0 = None
+    known_terms = None
     for t_idx in range(zscore_windows.shape[1]):
         data = predictors.copy()
         data["Z"] = zscore_windows[:, t_idx]
+
+        # A caller passing zscore_windows with per-trial NaN tails on a SMALL
+        # subset (e.g. one mouse's own session rows, not the full pooled
+        # cohort -- see cluster_permutation_word_l2.py) can hit a late
+        # timepoint where every remaining trial is already past its own
+        # truncation edge, leaving zero non-NaN Z values. smf.ols's
+        # missing="drop" then builds a zero-row design matrix and crashes in
+        # statsmodels' own constant-check (np.max on an empty array) before
+        # model.df_resid even exists for min_resid_dof to catch. Treat this
+        # the same as any other degenerate timepoint -- NaN it out -- using
+        # the most recent successful fit's term names (Z's own NaN pattern
+        # is timepoint-specific; the design's terms are not).
+        if data["Z"].notna().sum() == 0:
+            n_empty += 1
+            if known_terms is None:
+                raise ValueError(
+                    f"fit_time_resolved_glm: every Z value is NaN at t_idx={t_idx} "
+                    "(peth_time="
+                    f"{np.asarray(peth_time)[t_idx]}) and no earlier timepoint fit "
+                    "successfully -- cannot infer this formula's term names to NaN-fill this row"
+                )
+            row = {"r_squared": np.nan, "r_squared_adj": np.nan, "n_trials": 0}
+            for term in known_terms:
+                row[f"{term}_beta"] = np.nan
+                row[f"{term}_se"] = np.nan
+                row[f"{term}_tstat"] = np.nan
+                row[f"{term}_pvalue"] = np.nan
+            rows.append(row)
+            continue
+
         model = smf.ols(formula, data=data, missing="drop").fit()
+        known_terms = model.params.index
         n_trials = int(model.nobs)
         if n_trials_t0 is None:
             n_trials_t0 = n_trials
@@ -247,6 +280,10 @@ def fit_time_resolved_glm(
         print(f"fit_time_resolved_glm: {n_underrepresented}/{zscore_windows.shape[1]} timepoint(s) "
               f"retained fewer than min_retained_frac={min_retained_frac} of the original "
               "trial count (self-selected long-dwelling subsample) -- NaN'd instead of returned")
+    if n_empty:
+        print(f"fit_time_resolved_glm: {n_empty}/{zscore_windows.shape[1]} timepoint(s) had "
+              "zero non-NaN Z values (every trial already past its own truncation edge) -- "
+              "NaN'd instead of raising")
 
     return pd.DataFrame(rows, index=pd.Index(np.asarray(peth_time), name="peth_time"))
 

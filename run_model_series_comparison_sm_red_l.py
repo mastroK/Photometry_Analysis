@@ -156,8 +156,15 @@ def _load_sm_red_l_sessions(session_dirs, hemisphere="red_l", truncate_at_side_o
 
 def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=DEFAULT_OUT_DIR, fig_dir=DEFAULT_FIG_DIR,
                 truncate_at_side_out=False, side_out_margin_s=0.0, min_retained_frac=None,
-                censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
+                censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0,
+                session_dirs=None):
     """include_fir is not exposed -- always False here (see module docstring).
+
+    session_dirs : optional explicit session list, bypassing
+    get_sm_red_l_session_dirs(mice, hemisphere) -- e.g. an age-bin subset of
+    `mice`'s own valid sessions (see run_sm_age_split_comparison.py). `mice`
+    is still used for the manifest's own record of which mice this run
+    covers; only the session DISCOVERY step is overridden.
     model_names / out_dir / fig_dir match run_model_series_comparison.main's
     contract exactly. hemisphere defaults to "red_l" (this module's original
     purpose) but works identically for "green_l"/"green_r" -- force_nominal_
@@ -191,7 +198,8 @@ def main_red_l(mice=DEFAULT_MICE, hemisphere="red_l", model_names=None, out_dir=
     is entirely post-event) -- only the pooled fit_time_resolved_glm
     visualization, which spans the full pre/post window.
     """
-    session_dirs = get_sm_red_l_session_dirs(mice, hemisphere=hemisphere)
+    if session_dirs is None:
+        session_dirs = get_sm_red_l_session_dirs(mice, hemisphere=hemisphere)
     print(f"SM {hemisphere}, mice={sorted(mice)}: {len(session_dirs)} sessions")
 
     print("\nLoading sessions (one pipeline.run_session() pass each, reused for side_in, side_out)...")
