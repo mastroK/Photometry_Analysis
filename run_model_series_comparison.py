@@ -293,7 +293,8 @@ HEAD_TO_HEAD_COMPARISONS = [
 ]
 
 
-def _load_all_sessions(session_dirs, hemisphere_for_session, truncate_at_side_out=False, side_out_margin_s=0.0):
+def _load_all_sessions(session_dirs, hemisphere_for_session, truncate_at_side_out=False, side_out_margin_s=0.0,
+                        censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """Run pipeline.run_session exactly ONCE per session -- not once per
     align_event and once more for FIR -- and derive everything else (the
     side_out-aligned PETH, the FIR continuous trace) from that single call's
@@ -315,6 +316,13 @@ def _load_all_sessions(session_dirs, hemisphere_for_session, truncate_at_side_ou
     (truncating relative to side_out isn't meaningful, and run_session's own
     check disallows it).
 
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s :
+    forwarded to run_session's side_in-aligned pass only, same opt-in
+    default-False convention -- see pipeline.extract_event_peth's docstring.
+    Not applied to the separate side_out-aligned extract_event_peth call
+    below (out of scope for this pass; the previous-trial-contamination
+    question was investigated for side_in specifically).
+
     Returns a list of per-session dicts (mouse, date, trial_table_in,
     zscore_windows_in, peth_time_in, trial_table_out, zscore_windows_out,
     peth_time_out, continuous_trial_table, continuous_zscore).
@@ -331,7 +339,10 @@ def _load_all_sessions(session_dirs, hemisphere_for_session, truncate_at_side_ou
         try:
             result = run_session(session_dir, hemisphere=hemisphere, align_event="side_in",
                                   truncate_at_side_out=truncate_at_side_out,
-                                  side_out_margin_s=side_out_margin_s)
+                                  side_out_margin_s=side_out_margin_s,
+                                  censor_prev_trial=censor_prev_trial,
+                                  prev_trial_max_duration_s=prev_trial_max_duration_s,
+                                  prev_trial_margin_s=prev_trial_margin_s)
         except Exception as exc:
             print(f"WARNING: skipping session {session_dir} ({mouse} {date}): {exc}")
             n_failed += 1
@@ -674,7 +685,8 @@ def _save_pooled_arrays(out_dir, peth_time_in, zscore_in, trial_table_in,
 
 
 def main(cohort_label=COHORT_LABEL, include_fir=True, model_names=None, out_dir=OUT_DIR, fig_dir=FIG_DIR,
-         truncate_at_side_out=False, side_out_margin_s=0.0, min_retained_frac=None):
+         truncate_at_side_out=False, side_out_margin_s=0.0, min_retained_frac=None,
+         censor_prev_trial=False, prev_trial_max_duration_s=None, prev_trial_margin_s=0.0):
     """include_fir=False runs only the (cheap) time-resolved encoding-GLM
     comparison, skipping FIR/RidgeCV entirely -- FIR's 10-fold GroupShuffleSplit
     CV, each fold a RidgeCV over DEFAULT_ALPHAS, on a mouse's full pooled
@@ -705,6 +717,14 @@ def main(cohort_label=COHORT_LABEL, include_fir=True, model_names=None, out_dir=
         0.5 when truncate_at_side_out=True, None (disabled) otherwise --
         same auto-default convention as main_red_l. Pass explicitly to
         override either default.
+
+    censor_prev_trial/prev_trial_max_duration_s/prev_trial_margin_s :
+        opt-in, default False -- see pipeline.extract_event_peth's
+        docstring and validation/diagnose_pre_event_wiggle.py. NaNs out
+        each trial's own pre-event samples that fall after the previous
+        trial's own outcome, in the side_in-aligned PETH windows, before
+        fitting. Independent of truncate_at_side_out (that handles the
+        POST-event side); both can be enabled together.
     """
     cohort_entry = next((c for c in COHORTS if c[0] == cohort_label), None)
     if cohort_entry is None:
@@ -717,7 +737,10 @@ def main(cohort_label=COHORT_LABEL, include_fir=True, model_names=None, out_dir=
           "side_out, and FIR)...")
     sessions = _load_all_sessions(session_dirs, hemisphere_for_session,
                                    truncate_at_side_out=truncate_at_side_out,
-                                   side_out_margin_s=side_out_margin_s)
+                                   side_out_margin_s=side_out_margin_s,
+                                   censor_prev_trial=censor_prev_trial,
+                                   prev_trial_max_duration_s=prev_trial_max_duration_s,
+                                   prev_trial_margin_s=prev_trial_margin_s)
 
     peth_time_in, zscore_in, trial_table_in = _pool_sessions(sessions, "in")
     peth_time_out, zscore_out, trial_table_out = _pool_sessions(sessions, "out")
@@ -739,6 +762,8 @@ def main(cohort_label=COHORT_LABEL, include_fir=True, model_names=None, out_dir=
             cohort_label=cohort_label, include_fir=include_fir, model_names=model_names,
             truncate_at_side_out=truncate_at_side_out, side_out_margin_s=side_out_margin_s,
             min_retained_frac=min_retained_frac, n_sessions=len(session_dirs),
+            censor_prev_trial=censor_prev_trial, prev_trial_max_duration_s=prev_trial_max_duration_s,
+            prev_trial_margin_s=prev_trial_margin_s,
         ),
         script="run_model_series_comparison.main",
     )

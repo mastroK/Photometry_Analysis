@@ -1,0 +1,18 @@
+{
+  "script": "run_model_series_comparison.main",
+  "git_commit": "e9723707bf994797362bdb54194a572244e6ff6c",
+  "git_dirty": true,
+  "timestamp": "2026-08-20T23:58:48.189523",
+  "params": {
+    "cohort_label": "FP2_none",
+    "include_fir": false,
+    "model_names": null,
+    "truncate_at_side_out": true,
+    "side_out_margin_s": 0.0,
+    "min_retained_frac": 0.5,
+    "n_sessions": 26,
+    "censor_prev_trial": true,
+    "prev_trial_max_duration_s": null,
+    "prev_trial_margin_s": 0.0
+  }
+}
