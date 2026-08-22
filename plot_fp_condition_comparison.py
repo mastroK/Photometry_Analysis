@@ -131,6 +131,55 @@ def run_word_l2_cluster_tests(per_mouse, terms=CLEAN_TERMS):
     return results
 
 
+MIN_ACHIEVABLE_P_UNPAIRED = 1 / 330  # C(11,4), see cluster_permutation_unpaired.py
+
+
+def plot_word_l2_grid(word_l2_fits, cluster_results, out_dir, terms=CLEAN_TERMS):
+    """7-term grid + a cluster-p-value bar chart -- the FP1/FP2 counterpart
+    to plot_sm_age_split_beta_traces.py's grid. R^2 is deliberately not
+    shown here (see that script's docstring for why it's not the right
+    number for a magnitude/significance claim on this trace).
+    """
+    n_cols = 4
+    n_rows = int(np.ceil((len(terms) + 1) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.5 * n_cols, 3.2 * n_rows))
+    axes = np.atleast_1d(axes).flatten()
+    for ax in axes[1:len(terms)]:
+        ax.sharex(axes[0])
+
+    for ax, term in zip(axes, terms):
+        col, se_col = f"C(word_l2)[T.{term}]_beta", f"C(word_l2)[T.{term}]_se"
+        for cohort, fit in word_l2_fits.items():
+            x = fit.index.to_numpy()
+            y, se = fit[col], fit[se_col]
+            ax.plot(x, y, color=GROUP_COLORS[cohort], label=GROUP_LABELS[cohort], linewidth=1.5)
+            ax.fill_between(x, y - se, y + se, color=GROUP_COLORS[cohort], alpha=0.2)
+        ax.axhline(0, color="gray", linestyle=":", linewidth=0.8)
+        ax.axvline(0, color="black", linestyle=":", linewidth=0.8)
+        ax.set_title(f"{term}\ncluster p={cluster_results[term]['p']:.4f}", fontsize=9)
+
+    p_ax = axes[len(terms)]
+    p_ax.bar(terms, [cluster_results[t]["p"] for t in terms], color="#4C72B0")
+    p_ax.axhline(0.05, color="black", linestyle="--", linewidth=1, label="p=0.05")
+    p_ax.axhline(MIN_ACHIEVABLE_P_UNPAIRED, color="red", linestyle=":", linewidth=1,
+                 label="min achievable (C(11,4)=330 perms)")
+    p_ax.set_ylim(0, max(0.1, max(cluster_results[t]["p"] for t in terms)) * 1.1)
+    p_ax.set_title("cluster p-value by term", fontsize=9)
+    p_ax.legend(fontsize=6)
+    p_ax.tick_params(axis="x", rotation=45)
+
+    for ax in axes[len(terms) + 1:]:
+        ax.axis("off")
+    axes[0].legend(fontsize=8)
+    fig.suptitle("FP1 (young, 90/10) vs FP2 (old, 90/10): C(word_l2) time-resolved coefficients\n"
+                 "(shaded = SE; cluster p from unpaired exact permutation test, not R^2)")
+    fig.tight_layout()
+    out_path = out_dir / "fp_word_l2_beta_traces_grid.png"
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Wrote {out_path}")
+
+
 # ---------------------------------------------------------------- neural: Q_diff_bin
 
 def qdiff_bin_group_fits():
@@ -245,6 +294,8 @@ def main():
         dict(term=term, max_cluster_mass=r["mass"], p_value=r["p"], n_permutations=r["n_perms"])
         for term, r in cluster_results.items()
     ]).to_csv(RESULTS_DIR / "word_l2_cluster_permutation_results.csv", index=False)
+
+    plot_word_l2_grid(word_l2_fits, cluster_results, OUT_DIR)
 
     print("\n=== Neural: Q_diff_bin ===")
     qdiff_fits, peth_time = qdiff_bin_group_fits()
